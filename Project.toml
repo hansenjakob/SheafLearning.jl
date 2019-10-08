@@ -1,0 +1,9 @@
+name = "SheafLearning"
+uuid = "f8d9fbb4-e9d9-11e9-0c82-adcc717c199c"
+authors = ["Jakob Hansen <jhansen@math.upenn.edu>"]
+version = "0.1.0"
+
+[deps]
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+Optim = "429524aa-4258-5aef-a3af-852621145aeb"
+Printf = "de0858da-6303-5e67-8744-51eddeeeb8d7"
