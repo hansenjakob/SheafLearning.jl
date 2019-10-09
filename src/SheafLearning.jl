@@ -6,9 +6,12 @@ using LinearAlgebra
 using Printf
 using Optim
 
-function obj(Me,Le::Array{Float64,3},alpha,beta,Nv,dv,t,barrier=true)
+export recover_sheaf_Laplacian, recover_mw_Laplacian
+export LfromLe, LfromWe
+
+function sheaf_obj(Me,Le::Array{Float64,3},alpha,beta,Nv,dv,t,barrier=true)
     #Check that the input is in the domain of the function; this ensures the line search works properly
-    if !checkvalid(Le,1e-12)
+    if !is_valid_edge_matrix(Le,1e-12)
         return Inf
     end
 
@@ -16,7 +19,6 @@ function obj(Me,Le::Array{Float64,3},alpha,beta,Nv,dv,t,barrier=true)
     e = 1
     for i = 1:Nv
         for j = i+1:Nv
-            indices = [dv*(i-1)+1:dv*i; dv*(j-1)+1:dv*j]
             trL[i] += tr(Le[1:dv,1:dv,e])
             trL[j] += tr(Le[dv+1:2*dv,dv+1:2*dv,e])
             e += 1
@@ -36,12 +38,65 @@ function obj(Me,Le::Array{Float64,3},alpha,beta,Nv,dv,t,barrier=true)
     return obj
 end
 
-function obj_gradient!(grad::Array{Float64,3},Me,Le::Array{Float64,3},alpha,beta,Nv,dv,t)
+function mw_obj(Me,We::Array{Float64,3},alpha,beta,Nv,dv,t,barrier=true)
+    #Check that the input is in the domain of the function; this ensures the line search works properly
+    if !is_valid_edge_matrix(We,1e-12)
+        return Inf
+    end
+
     trL = zeros(Nv)
     e = 1
     for i = 1:Nv
         for j = i+1:Nv
-            indices = [dv*(i-1)+1:dv*i; dv*(j-1)+1:dv*j]
+            trL[i] += tr(We[:,:,e])
+            trL[j] += tr(We[:,:,e]) 
+            e += 1
+        end
+    end
+
+    obj = dot(We,Me) #Me here is not the same as the sheaf version
+    obj += -alpha*sum(log.(trL))
+    obj += beta*norm(We)^2
+    if barrier
+        obj *= t
+        Ne = div(Nv*(Nv-1),2)
+        for e = 1:Ne
+            obj += -log(det(We[:,:,e]))
+        end
+    end
+    return obj
+end
+
+function mw_obj_gradient(grad::Array{Float64,3},Me,We::Array{Float64,3},alpha,beta,Nv,dv,t)
+    trL = zeros(Nv)
+    e = 1
+    for i = 1:Nv
+        for j = i+1:Nv
+            trL[i] += tr(We[:,:,e])
+            trL[j] += tr(We[:,:,e]) 
+            e += 1
+        end
+    end
+    trLinv = (trL).^-1
+    e = 1
+    grad[:,:,:] = t*Me[:,:,:]
+    grad[:,:,:] += 2*t*beta*We[:,:,:]
+    for i = 1:Nv
+        for j = i+1:Nv
+            for k = 1:dv
+                grad[k,k,e] += -t*alpha*(trLinv[i]+trLinv[j])
+            end
+            grad[:,:,e] += -inv(We[:,:,e])
+            e += 1
+        end
+    end
+end
+
+function sheaf_obj_gradient(grad::Array{Float64,3},Me,Le::Array{Float64,3},alpha,beta,Nv,dv,t)
+    trL = zeros(Nv)
+    e = 1
+    for i = 1:Nv
+        for j = i+1:Nv
             trL[i] += tr(Le[1:dv,1:dv,e])
             trL[j] += tr(Le[dv+1:2*dv,dv+1:2*dv,e])
             e += 1
@@ -62,10 +117,10 @@ function obj_gradient!(grad::Array{Float64,3},Me,Le::Array{Float64,3},alpha,beta
             e += 1
         end
     end
-end
+end 
 
 
-function checkvalid(Le::Array{Float64,3},eps)
+function is_valid_edge_matrix(Le::Array{Float64,3},eps)
     dim = size(Le)[1]
     Ne = size(Le)[3]
     for i = 1:Ne
@@ -81,6 +136,12 @@ function checkvalid(Le::Array{Float64,3},eps)
     return true
 end
 
+"""
+    LfromLe(Le, Nv, dv)
+
+Compute a sheaf Laplacian L from an array Le of compressed edge contribution matrices as returned by recover_sheaf_Laplacian.
+
+"""
 function LfromLe(Le,Nv,dv)
     L = zeros(Nv*dv,Nv*dv)
     e = 1
@@ -94,29 +155,178 @@ function LfromLe(Le,Nv,dv)
     return L
 end
 
-function recover_sheaf_Laplacian(Me,alpha,beta,Nv,dv,tol=1e-7,maxouter=20,tscale=25)
+"""
+    LfromWe(We, Nv, dv)
+
+Compute a sheaf Laplacian L from an array We of matrix-valued edge weights as returned by recover_mw_Laplacian.
+
+"""
+function LfromWe(We,Nv,dv)
+    L = zeros(Nv*dv,Nv*dv)
+    e = 1
+    for i = 1:Nv
+        for j = i+1:Nv
+            L[dv*(i-1)+1:dv*i,dv*(j-1)+1:dv*j] = -We[:,:,e]
+            L[dv*(j-1)+1:dv*j,dv*(i-1)+1:dv*i] = -We[:,:,e]
+            L[dv*(i-1)+1:dv*i,dv*(i-1)+1:dv*i] += We[:,:,e]
+            L[dv*(j-1)+1:dv*j,dv*(j-1)+1:dv*j] += We[:,:,e]
+            e += 1
+        end
+    end
+    return L
+end
+
+
+"""
+    recover_sheaf_Laplacian(M, alpha, beta, Nv, dv, tol=1e-7, maxouter=20, tscale=25, verbose=false)
+
+Solve the optimization problem
+min tr(LM) - alpha Σ_v log tr(L_vv) + beta || off diagonal blocks of L ||_F^2 
+s.t. L is a sheaf Laplacian for a graph with Nv vertices and vertex stalks of dimension dv
+
+Uses a basic interior point method with a log determinant barrier, with a gradient-based optimizer from Optim.jl for each internal iteration.
+
+Arguments
+- M: data covariance matrix XX^T
+- alpha, beta: regularization parameters
+- Nv: number of vertices
+- dv: dimension of vertex stalks
+- tol: accuracy required---the interior point method guarantees this level of suboptimality
+- maxouter: maximum number of iterations for the outer loop of the interior point method
+- tscale: amount to scale the barrier parameter by in each iteration
+- verbose: print information about the progress of the outer loop
+"""
+function recover_sheaf_Laplacian(M,alpha,beta,Nv,dv,tol=1e-7,maxouter=20,tscale=25,verbose=false)
+    dims = size(M)
+    if length(dims) != 2 || dims[1] != dims[2] 
+        throw(DimensionMismatch("M must be a square 2D array"))
+    elseif dims[1] != Nv*dv
+        Msize = dims[1]
+        paramsize = Nv*dv
+        throw(DimensionMismatch("M has size $Msize while input of size Nv*dv = $paramsize was expected"))
+    end
+
+    Ne = div(Nv*(Nv-1),2)
+    # Take data covarance matrix and translate into a format corresponding to each edge
+    Me = zeros(2dv,2dv,Ne)
+    e = 1
+    for i = 1:Nv
+        for j = i+1:Nv
+            indices = [dv*(i-1)+1:dv*i; dv*(j-1)+1:dv*j]
+            Me[:,:,e] = M[indices,indices]
+            e += 1
+        end
+    end
+
+    # Prepare initial condition
     Le = zeros(2dv,2dv,Ne)
     for e = 1:Ne
         Le[:,:,e] = Matrix{Float64}(I, dv*2, dv*2)
     end
+
     t = 1
-    oldobj = obj(Me,Le,alpha,beta,Nv,dv,t,false)
+    oldobj = sheaf_obj(Me,Le,alpha,beta,Nv,dv,t,false)
     m = length(Me)*2*dv
+
     for outeriter = 1:maxouter
-        gradient_data! = (gradd,Lee) -> obj_gradient!(gradd,Me,Lee,alpha,beta,Nv,dv,t)
-        obj_data = (Lee) -> obj(Me,Lee,alpha,beta,Nv,dv,t)
+        gradient_data! = (param_grad,param_Le) -> sheaf_obj_gradient(param_grad,Me,param_Le,alpha,beta,Nv,dv,t)
+        obj_data = (param_Le) -> sheaf_obj(Me,param_Le,alpha,beta,Nv,dv,t)
         res = optimize(obj_data,gradient_data!,Le,LBFGS())
         Le = Optim.minimizer(res)
-        t = tscale * t
-        newobj = obj(Me,Le,alpha,beta,Nv,dv,t,false)
-        @printf("step %i objective: %f\n", outeriter, newobj)
-        @printf("t = %f\n", t)
+        t *= tscale
+        newobj = sheaf_obj(Me,Le,alpha,beta,Nv,dv,t,false)
+        if verbose
+            println("step $outeriter objective: $newobj")
+            println("t = $t")
+        end
         if (m/t < tol)
-            @printf("Desired tolerance %f reached\n",tol)
+            if verbose
+                println("Desired tolerance $tol reached")
+            end
+            oldobj = newobj
             break
         end
         oldobj = newobj
     end
-    return Le
+    return Le, oldobj
 end
+
+"""
+    recover_mw_Laplacian(M, alpha, beta, Nv, dv, tol=1e-7, maxouter=20, tscale=25, verbose=false)
+
+Solve the optimization problem
+min tr(LM) - alpha Σ_v log tr(L_vv) + beta || off diagonal blocks of L ||_F^2 
+s.t. L is a matrix-weighted Laplacian for a graph with Nv vertices and vertex stalks of dimension dv
+
+Uses a basic interior point method with a log determinant barrier, with a gradient-based optimizer from Optim.jl for each internal iteration.
+
+Arguments
+- M: data covariance matrix XX^T
+- alpha, beta: regularization parameters
+- Nv: number of vertices
+- dv: dimension of vertex stalks
+- tol: accuracy required---the interior point method guarantees this level of suboptimality
+- maxouter: maximum number of iterations for the outer loop of the interior point method
+- tscale: amount to scale the barrier parameter by in each iteration
+- verbose: print information about the progress of the outer loop
+"""
+function recover_mw_Laplacian(M,alpha,beta,Nv,dv,tol=1e-7,maxouter=20,tscale=25,verbose=false)
+    dims = size(M)
+    if length(dims) != 2 || dims[1] != dims[2] 
+        throw(DimensionMismatch("M must be a square 2D array"))
+    elseif dims[1] != Nv*dv
+        Msize = dims[1]
+        paramsize = Nv*dv
+        throw(DimensionMismatch("M has size $Msize while input of size Nv*dv = $paramsize was expected"))
+    end
+
+    Ne = div(Nv*(Nv-1),2)
+    # Take data covarance matrix and translate into a format corresponding to each edge
+    Me = zeros(dv,dv,Ne)
+    e = 1
+    for i = 1:Nv
+        for j = i+1:Nv
+            Me[:,:,e] = M[dv*(i-1)+1:dv*i,dv*(i-1)+1:dv*i] + M[dv*(j-1)+1:dv*j,dv*(j-1)+1:dv*j] - 2*M[dv*(i-1)+1:dv*i,dv*(j-1)+1:dv*j]
+            e += 1
+        end
+    end
+
+    # Prepare initial condition
+    We = zeros(dv,dv,Ne)
+    for e = 1:Ne
+        We[:,:,e] = Matrix{Float64}(I, dv, dv)
+    end
+
+    t = 1
+    oldobj = mw_obj(Me,We,alpha,beta,Nv,dv,t,false)
+    m = length(Me)*dv
+
+    for outeriter = 1:maxouter
+        gradient_data! = (param_grad,param_We) -> mw_obj_gradient(param_grad,Me,param_We,alpha,beta,Nv,dv,t)
+        obj_data = (param_We) -> mw_obj(Me,param_We,alpha,beta,Nv,dv,t)
+        res = optimize(obj_data,gradient_data!,We,LBFGS())
+        We = Optim.minimizer(res)
+        t *= tscale
+        newobj = mw_obj(Me,We,alpha,beta,Nv,dv,t,false)
+        if verbose
+            println("step $outeriter objective: $newobj")
+            println("t = $t")
+        end
+        if (m/t < tol)
+            if verbose
+                println("Desired tolerance $tol reached")
+            end
+            oldobj = newobj
+            break
+        end
+        oldobj = newobj
+    end
+    return We, oldobj
+end
+
+
+
+
+
+
 end # module
