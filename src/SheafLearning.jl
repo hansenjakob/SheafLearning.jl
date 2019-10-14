@@ -7,9 +7,10 @@ using Printf
 using Optim
 
 export recover_sheaf_Laplacian, recover_mw_Laplacian
-export LfromLe, LfromWe
+export edge_matrices_to_Laplacian, edge_weights_to_Laplacian
 export project_to_sheaf_Laplacian
 
+#Objective function for the sheaf learning problem 
 function sheaf_obj(Me,Le::Array{Float64,3},alpha,beta,Nv,dv,t,barrier=true)
     #Check that the input is in the domain of the function; this ensures the line search works properly
     if !is_valid_edge_matrix(Le,1e-12)
@@ -39,6 +40,7 @@ function sheaf_obj(Me,Le::Array{Float64,3},alpha,beta,Nv,dv,t,barrier=true)
     return obj
 end
 
+#Objective function for the matrix-weighted graph learning problem
 function mw_obj(Me,We::Array{Float64,3},alpha,beta,Nv,dv,t,barrier=true)
     #Check that the input is in the domain of the function; this ensures the line search works properly
     if !is_valid_edge_matrix(We,1e-12)
@@ -68,31 +70,7 @@ function mw_obj(Me,We::Array{Float64,3},alpha,beta,Nv,dv,t,barrier=true)
     return obj
 end
 
-function mw_obj_gradient!(grad::Array{Float64,3},Me,We::Array{Float64,3},alpha,beta,Nv,dv,t)
-    trL = zeros(Nv)
-    e = 1
-    for i = 1:Nv
-        for j = i+1:Nv
-            trL[i] += tr(We[:,:,e])
-            trL[j] += tr(We[:,:,e]) 
-            e += 1
-        end
-    end
-    trLinv = (trL).^-1
-    e = 1
-    grad[:,:,:] = t*Me[:,:,:]
-    grad[:,:,:] += 2*t*beta*We[:,:,:]
-    for i = 1:Nv
-        for j = i+1:Nv
-            for k = 1:dv
-                grad[k,k,e] += -t*alpha*(trLinv[i]+trLinv[j])
-            end
-            grad[:,:,e] += -inv(We[:,:,e])
-            e += 1
-        end
-    end
-end
-
+#Computes the gradient for sheaf learning objective
 function sheaf_obj_gradient!(grad::Array{Float64,3},Me,Le::Array{Float64,3},alpha,beta,Nv,dv,t)
     trL = zeros(Nv)
     e = 1
@@ -120,6 +98,32 @@ function sheaf_obj_gradient!(grad::Array{Float64,3},Me,Le::Array{Float64,3},alph
     end
 end 
 
+#Computes the gradient for matrix-weighted graph objective
+function mw_obj_gradient!(grad::Array{Float64,3},Me,We::Array{Float64,3},alpha,beta,Nv,dv,t)
+    trL = zeros(Nv)
+    e = 1
+    for i = 1:Nv
+        for j = i+1:Nv
+            trL[i] += tr(We[:,:,e])
+            trL[j] += tr(We[:,:,e]) 
+            e += 1
+        end
+    end
+    trLinv = (trL).^-1
+    e = 1
+    grad[:,:,:] = t*Me[:,:,:]
+    grad[:,:,:] += 2*t*beta*We[:,:,:]
+    for i = 1:Nv
+        for j = i+1:Nv
+            for k = 1:dv
+                grad[k,k,e] += -t*alpha*(trLinv[i]+trLinv[j])
+            end
+            grad[:,:,e] += -inv(We[:,:,e])
+            e += 1
+        end
+    end
+end
+
 
 function is_valid_edge_matrix(Le::Array{Float64,3},eps)
     dim = size(Le)[1]
@@ -138,12 +142,12 @@ function is_valid_edge_matrix(Le::Array{Float64,3},eps)
 end
 
 """
-    LfromLe(Le, Nv, dv)
+    edge_matrices_to_Laplacian(Le, Nv, dv)
 
 Compute a sheaf Laplacian L from an array Le of compressed edge contribution matrices as returned by recover_sheaf_Laplacian.
 
 """
-function LfromLe(Le,Nv,dv)
+function edge_matrices_to_Laplacian(Le,Nv,dv)
     L = zeros(Nv*dv,Nv*dv)
     e = 1
     for i = 1:Nv
@@ -157,12 +161,12 @@ function LfromLe(Le,Nv,dv)
 end
 
 """
-    LfromWe(We, Nv, dv)
+    edge_weights_to_Laplacian(We, Nv, dv)
 
 Compute a sheaf Laplacian L from an array We of matrix-valued edge weights as returned by recover_mw_Laplacian.
 
 """
-function LfromWe(We,Nv,dv)
+function edge_weights_to_Laplacian(We,Nv,dv)
     L = zeros(Nv*dv,Nv*dv)
     e = 1
     for i = 1:Nv
@@ -325,75 +329,8 @@ function recover_mw_Laplacian(M,alpha,beta,Nv,dv,tol=1e-7,maxouter=20,tscale=25,
     return We, oldobj
 end
 
-function sheaf_proj_obj(M,Le::Array{Float64,3},Nv,dv,t,barrier=true)
-    if !is_valid_edge_matrix(Le,0)
-        return Inf
-    end 
-    L = LfromLe(Le,Nv,dv)
-    Ne = div(Nv*(Nv-1),2)
-    obj = norm(M-L)^2
-    if barrier
-        obj *= t
-        for e = 1:Ne
-            obj -= log(det(Le[:,:,e]))
-        end
-    end
-    return obj
-end
+include("sheafprojection.jl")
 
-function sheaf_proj_grad!(grad::Array{Float64,3},M,Le::Array{Float64,3},Nv,dv,t)
-    L = LfromLe(Le,Nv,dv)
-    e = 1
-    for i = 1:Nv
-        for j = i+1:Nv
-            indices = [dv*(i-1)+1:dv*i; dv*(j-1)+1:dv*j]
-            grad[:,:,e] = 2*t*(L[indices,indices] - M[indices,indices]) - inv(Le[:,:,e])
-            e += 1
-        end
-    end
-end
-
-
-function project_to_sheaf_Laplacian(M,Nv,dv,tol=1e-12,maxouter=20,tscale=25,verbose=true)
-    dims = size(M)
-    if length(dims) != 2 || dims[1] != dims[2] 
-        throw(DimensionMismatch("M must be a square 2D array"))
-    elseif dims[1] != Nv*dv
-        Msize = dims[1]
-        paramsize = Nv*dv
-        throw(DimensionMismatch("M has size $Msize while input of size Nv*dv = $paramsize was expected"))
-    end    
-    Ne = div(Nv*(Nv-1),2)
-    Le = zeros(2dv,2dv,Ne)
-    for e = 1:Ne
-        Le[:,:,e] = Matrix{Float64}(I, dv*2, dv*2)
-    end
-    
-    t = 1
-    oldobj = sheaf_proj_obj(M,Le,Nv,dv,t,false)
-    m = Ne*2*dv
-
-    for outeriter = 1:maxouter
-        gradient_data! = (param_grad,param_Le) -> sheaf_proj_grad!(param_grad,M,param_Le,Nv,dv,t)
-        obj_data = (param_Le) -> sheaf_proj_obj(M,param_Le,Nv,dv,t)
-        res = optimize(obj_data,gradient_data!,Le,show_trace=true,show_every=1)
-        We = Optim.minimizer(res)
-        t *= tscale
-        newobj = sheaf_proj_obj(M,Le,Nv,dv,t,false)
-        if verbose
-            println("step $outeriter objective: $newobj, t = $t")
-        end
-        if (m/t < tol)
-            if verbose
-                println("Desired tolerance $tol reached")
-            end
-            oldobj = newobj
-            break
-        end
-        oldobj = newobj
-    end
-    return Le, oldobj
-end
 
 
 
