@@ -8,6 +8,7 @@ using Optim
 
 export recover_sheaf_Laplacian, recover_mw_Laplacian
 export LfromLe, LfromWe
+export project_to_sheaf_Laplacian
 
 function sheaf_obj(Me,Le::Array{Float64,3},alpha,beta,Nv,dv,t,barrier=true)
     #Check that the input is in the domain of the function; this ensures the line search works properly
@@ -67,7 +68,7 @@ function mw_obj(Me,We::Array{Float64,3},alpha,beta,Nv,dv,t,barrier=true)
     return obj
 end
 
-function mw_obj_gradient(grad::Array{Float64,3},Me,We::Array{Float64,3},alpha,beta,Nv,dv,t)
+function mw_obj_gradient!(grad::Array{Float64,3},Me,We::Array{Float64,3},alpha,beta,Nv,dv,t)
     trL = zeros(Nv)
     e = 1
     for i = 1:Nv
@@ -92,7 +93,7 @@ function mw_obj_gradient(grad::Array{Float64,3},Me,We::Array{Float64,3},alpha,be
     end
 end
 
-function sheaf_obj_gradient(grad::Array{Float64,3},Me,Le::Array{Float64,3},alpha,beta,Nv,dv,t)
+function sheaf_obj_gradient!(grad::Array{Float64,3},Me,Le::Array{Float64,3},alpha,beta,Nv,dv,t)
     trL = zeros(Nv)
     e = 1
     for i = 1:Nv
@@ -226,10 +227,10 @@ function recover_sheaf_Laplacian(M,alpha,beta,Nv,dv,tol=1e-7,maxouter=20,tscale=
 
     t = 1
     oldobj = sheaf_obj(Me,Le,alpha,beta,Nv,dv,t,false)
-    m = length(Me)*2*dv
+    m = Ne*2*dv
 
     for outeriter = 1:maxouter
-        gradient_data! = (param_grad,param_Le) -> sheaf_obj_gradient(param_grad,Me,param_Le,alpha,beta,Nv,dv,t)
+        gradient_data! = (param_grad,param_Le) -> sheaf_obj_gradient!(param_grad,Me,param_Le,alpha,beta,Nv,dv,t)
         obj_data = (param_Le) -> sheaf_obj(Me,param_Le,alpha,beta,Nv,dv,t)
         res = optimize(obj_data,gradient_data!,Le,LBFGS())
         Le = Optim.minimizer(res)
@@ -299,10 +300,10 @@ function recover_mw_Laplacian(M,alpha,beta,Nv,dv,tol=1e-7,maxouter=20,tscale=25,
 
     t = 1
     oldobj = mw_obj(Me,We,alpha,beta,Nv,dv,t,false)
-    m = length(Me)*dv
+    m = Ne*dv
 
     for outeriter = 1:maxouter
-        gradient_data! = (param_grad,param_We) -> mw_obj_gradient(param_grad,Me,param_We,alpha,beta,Nv,dv,t)
+        gradient_data! = (param_grad,param_We) -> mw_obj_gradient!(param_grad,Me,param_We,alpha,beta,Nv,dv,t)
         obj_data = (param_We) -> mw_obj(Me,param_We,alpha,beta,Nv,dv,t)
         res = optimize(obj_data,gradient_data!,We,LBFGS())
         We = Optim.minimizer(res)
@@ -324,6 +325,75 @@ function recover_mw_Laplacian(M,alpha,beta,Nv,dv,tol=1e-7,maxouter=20,tscale=25,
     return We, oldobj
 end
 
+function sheaf_proj_obj(M,Le::Array{Float64,3},Nv,dv,t,barrier=true)
+    if !is_valid_edge_matrix(Le,0)
+        return Inf
+    end 
+    L = LfromLe(Le,Nv,dv)
+    Ne = div(Nv*(Nv-1),2)
+    obj = norm(M-L)^2
+    if barrier
+        obj *= t
+        for e = 1:Ne
+            obj -= log(det(Le[:,:,e]))
+        end
+    end
+    return obj
+end
+
+function sheaf_proj_grad!(grad::Array{Float64,3},M,Le::Array{Float64,3},Nv,dv,t)
+    L = LfromLe(Le,Nv,dv)
+    e = 1
+    for i = 1:Nv
+        for j = i+1:Nv
+            indices = [dv*(i-1)+1:dv*i; dv*(j-1)+1:dv*j]
+            grad[:,:,e] = 2*t*(L[indices,indices] - M[indices,indices]) - inv(Le[:,:,e])
+            e += 1
+        end
+    end
+end
+
+
+function project_to_sheaf_Laplacian(M,Nv,dv,tol=1e-12,maxouter=20,tscale=25,verbose=true)
+    dims = size(M)
+    if length(dims) != 2 || dims[1] != dims[2] 
+        throw(DimensionMismatch("M must be a square 2D array"))
+    elseif dims[1] != Nv*dv
+        Msize = dims[1]
+        paramsize = Nv*dv
+        throw(DimensionMismatch("M has size $Msize while input of size Nv*dv = $paramsize was expected"))
+    end    
+    Ne = div(Nv*(Nv-1),2)
+    Le = zeros(2dv,2dv,Ne)
+    for e = 1:Ne
+        Le[:,:,e] = Matrix{Float64}(I, dv*2, dv*2)
+    end
+    
+    t = 1
+    oldobj = sheaf_proj_obj(M,Le,Nv,dv,t,false)
+    m = Ne*2*dv
+
+    for outeriter = 1:maxouter
+        gradient_data! = (param_grad,param_Le) -> sheaf_proj_grad!(param_grad,M,param_Le,Nv,dv,t)
+        obj_data = (param_Le) -> sheaf_proj_obj(M,param_Le,Nv,dv,t)
+        res = optimize(obj_data,gradient_data!,Le,show_trace=true,show_every=1)
+        We = Optim.minimizer(res)
+        t *= tscale
+        newobj = sheaf_proj_obj(M,Le,Nv,dv,t,false)
+        if verbose
+            println("step $outeriter objective: $newobj, t = $t")
+        end
+        if (m/t < tol)
+            if verbose
+                println("Desired tolerance $tol reached")
+            end
+            oldobj = newobj
+            break
+        end
+        oldobj = newobj
+    end
+    return Le, oldobj
+end
 
 
 

@@ -4,7 +4,10 @@ authors = ["Jakob Hansen <jhansen@math.upenn.edu>"]
 version = "0.1.0"
 
 [deps]
+Convex = "f65535da-76fb-5f13-bab9-19810c17039a"
+IJulia = "7073ff75-c697-5162-941a-fcdaad2a7d2a"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 Optim = "429524aa-4258-5aef-a3af-852621145aeb"
 Printf = "de0858da-6303-5e67-8744-51eddeeeb8d7"
+SCS = "c946c3f1-0d1f-5ce8-9dea-7daa1f7e2d13"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
