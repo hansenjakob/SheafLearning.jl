@@ -1,11 +1,13 @@
 using SheafLearning
 using Test
 using LinearAlgebra
+using Random
 
-Nv = 3
+rng = Random.MersenneTwister(10324)
+Nv = 10
 dv = 2
 Nsamples = 3000
-X = randn(Nv*dv,Nsamples);
+X = randn(rng,Nv*dv,Nsamples);
 M = X*X'/Nsamples;
 alpha = 1
 beta = 0.02
