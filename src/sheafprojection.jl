@@ -28,6 +28,7 @@ function vec2sym(V,dim)
             v = V[k]/sqrt(2)
             M[i,j] = v
             M[j,i] = v
+            k += 1
         end
     end
     return M
@@ -129,6 +130,7 @@ end
 
 Takes a semidefinite matrix M of size (Nv*dv)x(Nv*dv) and finds the nearest sheaf Laplacian.
 Uses SCS --- Splitting Conic Solver --- as a backend. 
+Returns the Laplacian matrix L as well as the squared distance between the two matrices.
 
 """
 function project_to_sheaf_Laplacian(M,Nv,dv;verbose=0)
@@ -145,20 +147,17 @@ function project_to_sheaf_Laplacian(M,Nv,dv;verbose=0)
     ncols = Ne*div(dv*(dv+1),2)
     nrows = div(Nv*dv*(Nv*dv+1),2) 
     A = build_constraint_matrix(Nv,dv)
-
     sdsize = dv*(2dv+1) #number of SDP variables for each edge
 
     #linear functional for the objective
     c = zeros(ncols+1+Ne*sdsize)
     c[1] = 1
-
     #Vectorize M and place in the RHS vector
     b = [0; sym2vec(M); zeros(Ne*sdsize)]
-
     sol = SCS_solve(SCS.Direct,
     size(A)[1], 
     size(A)[2], #Dimensions of A
-    -A, b, #-Ax + s = b
+    -A, -b, #-Ax + s = b
     c, #minimize c'x
     0, #no equality constraints
     0, #no linear inequality constraints
@@ -170,17 +169,17 @@ function project_to_sheaf_Laplacian(M,Nv,dv;verbose=0)
     verbose=verbose)
 
     Le = zeros(2dv,2dv,Ne)
-    k = 1
+    k = 2
     for e = 1:Ne
         Le[:,:,e] = vec2sym(sol.x[k:k+sdsize-1],2dv)
         k += sdsize
     end
-    return edge_matrices_to_Laplacian(Le,Nv,dv)
+    return edge_matrices_to_Laplacian(Le,Nv,dv), sol.x[1]^2
 end
 
-#Nv = 200 
+#Nv = 3
 #dv = 2
 #Ne = div(Nv*(Nv-1),2)
-#Nsamples = 300000
-#X = randn(Nv*dv,Nsamples);
-#M = X*X'/Nsamples;
+#M = Matrix{Float64}(I,Nv*dv,Nv*dv)
+
+#L, dist = project_to_sheaf_Laplacian(M,Nv,dv;verbose=1)

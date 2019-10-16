@@ -1,6 +1,6 @@
 module SheafLearning
 
-greet() = print("Hello World!")
+greet() = print("SheafLearning.jl: routines for learning sheaves from data")
 
 using LinearAlgebra
 using Printf
@@ -193,7 +193,7 @@ Uses a basic interior point method with a log determinant barrier, with a gradie
 
 Arguments
 - M: data covariance matrix XX^T
-- alpha, beta: regularization parameters
+- alpha, beta: regularization parameters >= 0
 - Nv: number of vertices
 - dv: dimension of vertex stalks
 - tol: accuracy required---the interior point method guarantees this level of suboptimality
@@ -267,7 +267,7 @@ Uses a basic interior point method with a log determinant barrier, with a gradie
 
 Arguments
 - M: data covariance matrix XX^T
-- alpha, beta: regularization parameters
+- alpha, beta: regularization parameters >= 0
 - Nv: number of vertices
 - dv: dimension of vertex stalks
 - tol: accuracy required---the interior point method guarantees this level of suboptimality
