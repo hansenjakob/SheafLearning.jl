@@ -1,6 +1,4 @@
 # SheafLearning.jl
-Julia package for learning cellular sheaf Laplacians
-
 This is a Julia package containing routines for solving the optimization problems in [1] 
 for learning sheaf Laplacians and matrix-weighted graph Laplacians from smooth signals.
 It also has the ability to compute projections onto the cone of sheaf Laplacians.
