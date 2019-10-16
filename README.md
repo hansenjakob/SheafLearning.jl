@@ -3,8 +3,8 @@ This is a Julia package containing routines for solving the optimization problem
 for learning sheaf Laplacians and matrix-weighted graph Laplacians from smooth signals.
 It also has the ability to compute projections onto the cone of sheaf Laplacians.
 
-## Installing
-SheafLearning.jl is not currently a registered Julia package. To install it, run the following in the Julia REPL:
+## Installation
+SheafLearning.jl is not currently in the General registry. To install it, run the following in the Julia REPL:
 ```julia
 using Pkg
 Pkg.add("https://github.com/hansenjakob/SheafLearning.jl")
@@ -13,7 +13,7 @@ Pkg.add("https://github.com/hansenjakob/SheafLearning.jl")
 ## Usage
 Import SheafLearning.jl as usual. The main functions are `recover_sheaf_Laplacian`, `recover_mw_Laplacian`, and `project_to_sheaf_Laplacian`. 
 
-The two sheaf recovery functions minimize the objective function 
+The two sheaf recovery functions minimize the objective 
 
 ```tr(LM) - alpha * Σ_v log(tr(L_vv)) + beta * ||L||_F^2```
 
@@ -44,6 +44,12 @@ project_to_sheaf_Laplacian(M,Nv,dv;verbose=0)
 ```
 
 This problem is translated to a conic program and solved using [SCS](https://github.com/JuliaOpt/SCS.jl).
+
+More information about the functions can be found using Julia's built-in help. Type `?[function_name]` into the REPL.
+
+## Contact
+Feel free to contact me at jhansen at math.upenn.edu with questions or suggestions. More resources on cellular sheaves and their Laplacians are available at [jakobhansen.org](http://www.jakobhansen.org).
+
 
 
 [1] Hansen, Jakob and Ghrist, Robert. [Learning Sheaf Laplacians from Smooth Signals](https://www.math.upenn.edu/~jhansen/publications/learningsheaves.pdf). _Proceedings of the International Conference on Acoustics, Speech, and Signal Processing_, 2019.
