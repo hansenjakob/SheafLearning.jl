@@ -128,20 +128,13 @@ end
 """
     project_to_sheaf_cone(M,Nv,dv;verbose=0)
 
-Takes a semidefinite matrix M of size (Nv*dv)x(Nv*dv) and finds the nearest sheaf Laplacian.
+Takes a semidefinite matrix M of size (Nv*dv)x(Nv*dv) and finds the nearest sheaf Laplacian in the Frobenius norm.
 Uses SCS --- Splitting Conic Solver --- as a backend. 
 Returns the Laplacian matrix L as well as the squared distance between the two matrices.
 
 """
 function project_to_sheaf_Laplacian(M,Nv,dv;verbose=0)
-    dims = size(M)
-    if length(dims) != 2 || dims[1] != dims[2] 
-        throw(DimensionMismatch("M must be a square 2D array"))
-    elseif dims[1] != Nv*dv
-        Msize = dims[1]
-        paramsize = Nv*dv
-        throw(DimensionMismatch("M has size $Msize while input of size Nv*dv = $paramsize was expected"))
-    end
+    check_dims(M,Nv,dv)
 
     Ne = div(Nv*(Nv-1),2) 
     ncols = Ne*div(dv*(dv+1),2)
@@ -176,10 +169,3 @@ function project_to_sheaf_Laplacian(M,Nv,dv;verbose=0)
     end
     return edge_matrices_to_Laplacian(Le,Nv,dv), sol.x[1]^2
 end
-
-#Nv = 3
-#dv = 2
-#Ne = div(Nv*(Nv-1),2)
-#M = Matrix{Float64}(I,Nv*dv,Nv*dv)
-
-#L, dist = project_to_sheaf_Laplacian(M,Nv,dv;verbose=1)

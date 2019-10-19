@@ -3,7 +3,6 @@ module SheafLearning
 greet() = print("SheafLearning.jl: routines for learning sheaves from data")
 
 using LinearAlgebra
-using Printf
 using Optim
 
 export recover_sheaf_Laplacian, recover_mw_Laplacian
@@ -141,6 +140,17 @@ function is_valid_edge_matrix(Le::Array{Float64,3},eps)
     return true
 end
 
+function check_dims(M,Nv,dv)
+    dims = size(M)
+    if length(dims) != 2 || dims[1] != dims[2] 
+        throw(DimensionMismatch("M must be a square 2D array"))
+    elseif dims[1] != Nv*dv
+        Msize = dims[1]
+        paramsize = Nv*dv
+        throw(DimensionMismatch("M has size $Msize while input of size Nv*dv = $paramsize was expected"))
+    end 
+end
+
 """
     edge_matrices_to_Laplacian(Le, Nv, dv)
 
@@ -181,6 +191,51 @@ function edge_weights_to_Laplacian(We,Nv,dv)
     return L
 end
 
+"""
+    interior_point(objective,gradient,initial_condition,total_constraint_degree,tol=1e-7,maxouter=20,tscale=25,verbose=false)
+
+Runs an interior point method for convex functions with convex constraints. 
+- objective: function taking (state,t,barrier) and returning objective(state) + t*barrier(state) if barrier is true and objective(state) otherwise
+- gradient: function taking (grad,state,t) and mutating grad to contain the gradient of objective + t*barrier evaluated at state
+- initial_condition is obvious
+- total_constraint_degree is used to bound the suboptimality of the result. This is computed from the number of constraints and the degree of the barrier functions.
+- tol: solution tolerance, guarantee that the suboptimality is at most tol
+- maxouter: maximum number of outer iterations to take. Typically not many are required with reasonable values of tscale
+- tscale: how much to scale the barrier by at each outer iteration
+- verbose: print information about the progress of the algorithm
+"""
+function interior_point(objective,gradient,initial_condition,total_constraint_degree,tol=1e-7,maxouter=20,tscale=25,verbose=false)
+    t = 1
+    state = initial_condition
+    m = total_constraint_degree
+    oldobj = objective(state,t,false)
+
+    # This is the main loop. At each step, minimizes a perturbed version of the objective function with a barrier function preventing the minimizer from leaving the feasible region.
+    # After each loop, the barrier function is scaled, so that the sequence of minimizers follows a path that converges to the optimum of the constrained problem.
+    # This is a standard, probably poorly implemented interior-point method.
+    for outeriter = 1:maxouter
+        gradient_data! = (param_grad,param_state) -> gradient(param_grad,param_state,t)
+        obj_data = (param_state) -> objective(param_state,t,true)
+        res = optimize(obj_data,gradient_data!,state,LBFGS())
+        state = Optim.minimizer(res)
+        t *= tscale
+        newobj = objective(state,t,false)
+        if verbose
+            println("step $outeriter objective: $newobj")
+            println("t = $t")
+        end
+        if (m/t < tol)
+            if verbose
+                println("Desired tolerance $tol reached")
+            end
+            oldobj = newobj
+            break
+        end
+        oldobj = newobj
+    end
+    return state, oldobj
+end
+
 
 """
     recover_sheaf_Laplacian(M, alpha, beta, Nv, dv, tol=1e-7, maxouter=20, tscale=25, verbose=false)
@@ -202,13 +257,10 @@ Arguments
 - verbose: print information about the progress of the outer loop
 """
 function recover_sheaf_Laplacian(M,alpha,beta,Nv,dv,tol=1e-7,maxouter=20,tscale=25,verbose=false)
-    dims = size(M)
-    if length(dims) != 2 || dims[1] != dims[2] 
-        throw(DimensionMismatch("M must be a square 2D array"))
-    elseif dims[1] != Nv*dv
-        Msize = dims[1]
-        paramsize = Nv*dv
-        throw(DimensionMismatch("M has size $Msize while input of size Nv*dv = $paramsize was expected"))
+    check_dims(M,Nv,dv)
+
+    if alpha < 0 || beta < 0
+        # throw a BoundsError
     end
 
     Ne = div(Nv*(Nv-1),2)
@@ -229,33 +281,13 @@ function recover_sheaf_Laplacian(M,alpha,beta,Nv,dv,tol=1e-7,maxouter=20,tscale=
         Le[:,:,e] = Matrix{Float64}(I, dv*2, dv*2)
     end
 
-    t = 1
-    oldobj = sheaf_obj(Me,Le,alpha,beta,Nv,dv,t,false)
     m = Ne*2*dv
+    obj_data = (param_Le,t,barrier) -> sheaf_obj(Me,param_Le,alpha,beta,Nv,dv,t,barrier)
+    gradient_data! = (param_grad,param_Le,t) -> sheaf_obj_gradient!(param_grad,Me,param_Le,alpha,beta,Nv,dv,t)
+    Le, oldobj = interior_point(obj_data,gradient_data!,Le,m,tol,maxouter,tscale,verbose)
 
-    for outeriter = 1:maxouter
-        gradient_data! = (param_grad,param_Le) -> sheaf_obj_gradient!(param_grad,Me,param_Le,alpha,beta,Nv,dv,t)
-        obj_data = (param_Le) -> sheaf_obj(Me,param_Le,alpha,beta,Nv,dv,t)
-        res = optimize(obj_data,gradient_data!,Le,LBFGS())
-        Le = Optim.minimizer(res)
-        t *= tscale
-        newobj = sheaf_obj(Me,Le,alpha,beta,Nv,dv,t,false)
-        if verbose
-            println("step $outeriter objective: $newobj")
-            println("t = $t")
-        end
-        if (m/t < tol)
-            if verbose
-                println("Desired tolerance $tol reached")
-            end
-            oldobj = newobj
-            break
-        end
-        oldobj = newobj
-    end
     return Le, oldobj
 end
-
 """
     recover_mw_Laplacian(M, alpha, beta, Nv, dv, tol=1e-7, maxouter=20, tscale=25, verbose=false)
 
@@ -276,14 +308,7 @@ Arguments
 - verbose: print information about the progress of the outer loop
 """
 function recover_mw_Laplacian(M,alpha,beta,Nv,dv,tol=1e-7,maxouter=20,tscale=25,verbose=false)
-    dims = size(M)
-    if length(dims) != 2 || dims[1] != dims[2] 
-        throw(DimensionMismatch("M must be a square 2D array"))
-    elseif dims[1] != Nv*dv
-        Msize = dims[1]
-        paramsize = Nv*dv
-        throw(DimensionMismatch("M has size $Msize while input of size Nv*dv = $paramsize was expected"))
-    end
+    check_dims(M,Nv,dv)
 
     Ne = div(Nv*(Nv-1),2)
     # Take data covarance matrix and translate into a format corresponding to each edge
@@ -302,30 +327,12 @@ function recover_mw_Laplacian(M,alpha,beta,Nv,dv,tol=1e-7,maxouter=20,tscale=25,
         We[:,:,e] = Matrix{Float64}(I, dv, dv)
     end
 
-    t = 1
-    oldobj = mw_obj(Me,We,alpha,beta,Nv,dv,t,false)
     m = Ne*dv
 
-    for outeriter = 1:maxouter
-        gradient_data! = (param_grad,param_We) -> mw_obj_gradient!(param_grad,Me,param_We,alpha,beta,Nv,dv,t)
-        obj_data = (param_We) -> mw_obj(Me,param_We,alpha,beta,Nv,dv,t)
-        res = optimize(obj_data,gradient_data!,We,LBFGS())
-        We = Optim.minimizer(res)
-        t *= tscale
-        newobj = mw_obj(Me,We,alpha,beta,Nv,dv,t,false)
-        if verbose
-            println("step $outeriter objective: $newobj")
-            println("t = $t")
-        end
-        if (m/t < tol)
-            if verbose
-                println("Desired tolerance $tol reached")
-            end
-            oldobj = newobj
-            break
-        end
-        oldobj = newobj
-    end
+    obj_data = (param_We,t,barrier) -> mw_obj(Me,param_We,alpha,beta,Nv,dv,t,barrier)
+    gradient_data! = (param_grad,param_We,t) -> mw_obj_gradient!(param_grad,Me,param_We,alpha,beta,Nv,dv,t)
+    We, oldobj = interior_point(obj_data,gradient_data!,We,m,tol,maxouter,tscale,verbose)
+
     return We, oldobj
 end
 
