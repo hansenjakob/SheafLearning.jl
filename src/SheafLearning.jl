@@ -124,6 +124,104 @@ function mw_obj_gradient!(grad::Array{Float64,3},Me,We::Array{Float64,3},alpha,b
 end
 
 
+function sheaf_obj(Me::Array{Float64,1},Le::Array{Float64,1},alpha,beta,Nv,dv::Array{Int,1},edge_matrix_sizes,t,barrier=true)
+    #Check that the input is in the domain of the function; this ensures the line search works properly
+    if !is_valid_edge_matrix(Le,edge_matrix_sizes,1e-12)
+        return Inf
+    end
+
+    #This loop calculates the trace of each diagonal block of L as well as the squared norm of the off-diagonal blocks of L
+    trL = get_trace(Le,Nv,dv,edge_matrix_sizes)
+    off_diag_norm = 0.
+    e = 1
+    startidx = 1
+    for i = 1:Nv
+        for j = i+1:Nv
+            #norm accumulation
+            for k = 1:dv[i]
+                for l = dv[i]+1:edge_matrix_sizes[e]
+                    off_diag_norm += Le[startidx+edge_matrix_sizes[e]*(k-1)+l-1]^2
+                end
+            end
+            startidx += edge_matrix_sizes[e]^2
+            e += 1
+        end
+    end
+
+    obj = dot(Le,Me)
+    obj += -alpha*sum(log.(trL))
+    obj += beta*2*off_diag_norm
+    if barrier
+        obj *= t
+        Ne = div(Nv*(Nv-1),2)
+        startidx = 1
+        for e = 1:Ne
+            edge_matrix = reshape(Le[startidx:startidx+edge_matrix_sizes[e]^2-1],(edge_matrix_sizes[e],edge_matrix_sizes[e]))
+            obj += -log(det(edge_matrix))
+            startidx += edge_matrix_sizes[e]^2
+        end
+    end
+    return obj
+end
+
+function get_trace(Le::Array{Float64,1},Nv,dv,edge_matrix_sizes)
+    trL = zeros(Nv)
+    e = 1
+    startidx = 1
+    for i = 1:Nv
+        for j = i+1:Nv
+            #trace accumulation
+            for k = 1:dv[i]
+                trL[i] += Le[startidx+edge_matrix_sizes[e]*(k-1)+k-1]
+            end
+            for k = dv[i]+1:edge_matrix_sizes[e]
+                trL[j] += Le[startidx+edge_matrix_sizes[e]*(k-1)+k-1]
+            end
+            startidx += edge_matrix_sizes[e]^2
+            e += 1
+        end
+    end
+    return trL
+end
+
+
+function sheaf_obj_gradient!(grad::Array{Float64,1},Me::Array{Float64,1},Le::Array{Float64,1},alpha,beta,Nv,dv::Array{Int,1},edge_matrix_sizes,t)
+    trL = get_trace(Le,Nv,dv,edge_matrix_sizes)
+
+    trLinv = (trL).^-1
+
+    grad[:,:,:] = t*Me[:,:,:]
+    e = 1
+    startidx = 1
+    for i = 1:Nv
+        for j = i+1:Nv
+            # accumulate gradients from off-diagonal norm
+            for k = 1:dv[i]
+                for l = dv[i]+1:edge_matrix_sizes[e]
+                    grad[startidx+startidx+edge_matrix_sizes[e]*(k-1)+l-1] += t*beta*Le[startidx+edge_matrix_sizes[e]*(k-1)+l-1]
+                    grad[startidx+startidx+edge_matrix_sizes[e]*(l-1)+k-1] += t*beta*Le[startidx+edge_matrix_sizes[e]*(l-1)+k-1] 
+                end
+            end 
+
+            # accumulate gradients from log trace term
+            for k = 1:dv[i]
+                grad[startidx+startidx+edge_matrix_sizes[e]*(k-1)+k-1] += -t*alpha*trLinv[i]
+            end
+            for k = dv[i]+1:edge_matrix_sizes[e]
+                grad[startidx+startidx+edge_matrix_sizes[e]*(k-1)+k-1] += -t*alpha*trLinv[j]
+            end 
+
+            #accumulate gradients from barrier function
+            inverse_matrix = inv(reshape(Le[startidx:startidx+edge_matrix_sizes[e]^2-1],(edge_matrix_sizes[e],edge_matrix_sizes[e])))
+            grad[:,:,e] += -reshape(inverse_matrix,edge_matrix_sizes[e]^2)
+
+            startidx += edge_matrix_sizes[e]^2
+            e += 1
+        end
+    end
+end 
+
+
 function is_valid_edge_matrix(Le::Array{Float64,3},eps)
     dim = size(Le)[1]
     Ne = size(Le)[3]
@@ -140,7 +238,25 @@ function is_valid_edge_matrix(Le::Array{Float64,3},eps)
     return true
 end
 
-function check_dims(M,Nv,dv)
+function is_valid_edge_matrix(Le::Array{Float64,1},blocksizes,eps)
+    Ne = length(blocksizes)
+    startidx = 1
+    for e = 1:Ne
+        edge_mat = reshape(Le[startidx:startidx+blocksizes[e]^2 - 1],(blocksizes[e],blocksizes[e]))
+        if det(edge_mat) <= eps
+            return false
+        end
+        for k = 1:blocksizes[e]
+            if edge_mat[k,k] <= eps
+                return false
+            end
+        end
+        startidx += blocksizes[e]^2
+    end
+    return true
+end
+
+function check_dims(M,Nv,dv::Int)
     dims = size(M)
     if length(dims) != 2 || dims[1] != dims[2] 
         throw(DimensionMismatch("M must be a square 2D array"))
@@ -148,6 +264,20 @@ function check_dims(M,Nv,dv)
         Msize = dims[1]
         paramsize = Nv*dv
         throw(DimensionMismatch("M has size $Msize while input of size Nv*dv = $paramsize was expected"))
+    end 
+end
+
+function check_dims(M,Nv,dv::Array{Int,1})
+    dims = size(M)
+    if length(dv) != Nv
+        throw(DimensionMismatch("dv must have Nv = $Nv entries"))
+    end
+    totaldims = sum(dv)
+    if length(dims) != 2 || dims[1] != dims[2] 
+        throw(DimensionMismatch("M must be a square 2D array"))
+    elseif dims[1] != totaldims
+        Msize = dims[1]
+        throw(DimensionMismatch("M has size $Msize while input of size sum(dv) = $totaldims was expected"))
     end 
 end
 
@@ -256,7 +386,7 @@ Arguments
 - tscale: amount to scale the barrier parameter by in each iteration
 - verbose: print information about the progress of the outer loop
 """
-function recover_sheaf_Laplacian(M,alpha,beta,Nv,dv,tol=1e-7,maxouter=20,tscale=25,verbose=false)
+function recover_sheaf_Laplacian(M,alpha,beta,Nv,dv::Int,tol=1e-7,maxouter=20,tscale=25,verbose=false)
     check_dims(M,Nv,dv)
 
     if alpha < 0 || beta < 0
@@ -307,7 +437,7 @@ Arguments
 - tscale: amount to scale the barrier parameter by in each iteration
 - verbose: print information about the progress of the outer loop
 """
-function recover_mw_Laplacian(M,alpha,beta,Nv,dv,tol=1e-7,maxouter=20,tscale=25,verbose=false)
+function recover_mw_Laplacian(M,alpha,beta,Nv,dv::Int,tol=1e-7,maxouter=20,tscale=25,verbose=false)
     check_dims(M,Nv,dv)
 
     Ne = div(Nv*(Nv-1),2)
@@ -335,6 +465,55 @@ function recover_mw_Laplacian(M,alpha,beta,Nv,dv,tol=1e-7,maxouter=20,tscale=25,
 
     return We, oldobj
 end
+
+function recover_sheaf_Laplacian(M,alpha,beta,Nv,dv::Array{Int,1},tol=1e-7,maxouter=20,tscale=25,verbose=false)
+    check_dims(M,Nv,dv)
+
+    totaldims = sum(dv)
+
+    if alpha < 0 || beta < 0
+        # throw a BoundsError
+    end
+
+    Ne = div(Nv*(Nv-1),2)
+    # Take data covarance matrix and translate into a format corresponding to each edge
+    # We have to put everything in a one-dimensional vector now, which requires a lot more work
+    # Initial condition setup is in this loop too.
+    blockends = cumsum(dv)
+    blockindices = [[blockends[i] - dv[i] + 1: blockends[i]] for i in 1:Nv]
+    edge_matrix_sizes = [(dv[i] + dv[j]) for i in 1:Nv for j in i+1:Nv]
+    Me = zeros(sum(edge_matrix_sizes.^2))
+    Le = zeros(size(Me))
+    e = 1
+    startidx = 1
+    for i = 1:Nv
+        for j = i+1:Nv
+            indices = [blockindices[i]; blockindices[j]]
+            veclength = (edge_matrix_sizes[e])^2
+            Mvec = reshape(M[indices,indices],veclength)
+            Me[startidx:startidx+veclength-1] = Mvec
+            Le[startidx:startidx+veclength-1] = reshape(Matrix{Float64}(I,(edge_matrix_sizes[e],edge_matrix_sizes[e])),veclength)
+            startidx += veclength
+            e += 1
+        end
+    end
+
+    m = 2*sum(edge_matrix_sizes) #total degree of barrier functions 
+
+    obj_data = (param_Le,t,barrier) -> sheaf_obj(Me,param_Le,alpha,beta,Nv,dv,t,edge_matrix_sizes,barrier)
+    gradient_data! = (param_grad,param_Le,t) -> sheaf_obj_gradient!(param_grad,Me,param_Le,alpha,beta,Nv,dv,edge_matrix_sizes,t)
+    Le, oldobj = interior_point(obj_data,gradient_data!,Le,m,tol,maxouter,tscale,verbose)
+
+    Le_out = Array{Array{Float64,2},1}
+    startidx = 1
+    for e = 1:Ne
+        edge_matrix = reshape(Le[startidx:startidx+edge_matrix_sizes[e]-1],(edge_matrix_sizes[e],edge_matrix_sizes[e]))
+        push!(Le_out,edge_matrix)
+    end
+
+    return Le_out, oldobj
+end
+
 
 include("sheafprojection.jl")
 

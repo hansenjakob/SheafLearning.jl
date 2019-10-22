@@ -15,6 +15,8 @@ beta = 0.02
 
 Le, loss = recover_sheaf_Laplacian(M,alpha,beta,Nv,dv,true)
 
+Le, loss = recover_sheaf_Laplacian(M,alpha,beta,Nv,[dv for i in 1:Nv],true)
+
 We, loss = recover_mw_Laplacian(M,alpha,beta,Nv,dv,true)
 
 L, dist = project_to_sheaf_Laplacian(M,Nv,dv)
