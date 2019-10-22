@@ -15,7 +15,11 @@ beta = 0.02
 
 Le, loss = recover_sheaf_Laplacian(M,alpha,beta,Nv,dv,true)
 
+L = edge_matrices_to_Laplacian(Le,Nv,dv)
+
 Le, loss = recover_sheaf_Laplacian(M,alpha,beta,Nv,[dv for i in 1:Nv],true)
+
+L = edge_matrices_to_Laplacian(Le,Nv,[dv for i in 1:Nv])
 
 We, loss = recover_mw_Laplacian(M,alpha,beta,Nv,dv,true)
 

@@ -281,13 +281,22 @@ function check_dims(M,Nv,dv::Array{Int,1})
     end 
 end
 
+function check_reg_params(alpha,beta)
+    if alpha < 0
+        throw(DomainError(alpha,"regularization parameter alpha must be nonnegative"))
+    end
+    if beta < 0
+        throw(DomainError(beta,"regularization parameter alpha must be nonnegative"))
+    end
+end
+
 """
     edge_matrices_to_Laplacian(Le, Nv, dv)
 
 Compute a sheaf Laplacian L from an array Le of compressed edge contribution matrices as returned by recover_sheaf_Laplacian.
 
 """
-function edge_matrices_to_Laplacian(Le,Nv,dv)
+function edge_matrices_to_Laplacian(Le::Array{Float64,3},Nv,dv::Int)
     L = zeros(Nv*dv,Nv*dv)
     e = 1
     for i = 1:Nv
@@ -297,6 +306,22 @@ function edge_matrices_to_Laplacian(Le,Nv,dv)
             e += 1
         end
     end
+    return L
+end
+
+function edge_matrices_to_Laplacian(Le::Array{Array{Float64,2},1},Nv,dv::Array{Int,1})
+    totaldims = sum(dv)
+    L = zeros(totaldims,totaldims)
+    blockends = cumsum(dv)
+    blockindices = [blockends[i]-dv[i]+1:blockends[i] for i in 1:Nv]
+    e = 1
+    for i = 1:Nv
+        for j = i+1:Nv
+            indices = [blockindices[i]; blockindices[j]]
+            L[indices,indices] += Le[e]
+            e += 1
+        end
+    end 
     return L
 end
 
@@ -388,10 +413,7 @@ Arguments
 """
 function recover_sheaf_Laplacian(M,alpha,beta,Nv,dv::Int,tol=1e-7,maxouter=20,tscale=25,verbose=false)
     check_dims(M,Nv,dv)
-
-    if alpha < 0 || beta < 0
-        # throw a BoundsError
-    end
+    check_reg_params(alpha,beta)
 
     Ne = div(Nv*(Nv-1),2)
     # Take data covarance matrix and translate into a format corresponding to each edge
@@ -439,6 +461,7 @@ Arguments
 """
 function recover_mw_Laplacian(M,alpha,beta,Nv,dv::Int,tol=1e-7,maxouter=20,tscale=25,verbose=false)
     check_dims(M,Nv,dv)
+    check_reg_params(alpha,beta)
 
     Ne = div(Nv*(Nv-1),2)
     # Take data covarance matrix and translate into a format corresponding to each edge
@@ -468,14 +491,11 @@ end
 
 function recover_sheaf_Laplacian(M,alpha,beta,Nv,dv::Array{Int,1},tol=1e-7,maxouter=20,tscale=25,verbose=false)
     check_dims(M,Nv,dv)
+    check_reg_params(alpha,beta) 
 
     totaldims = sum(dv)
-
-    if alpha < 0 || beta < 0
-        # throw a BoundsError
-    end
-
     Ne = div(Nv*(Nv-1),2)
+
     # Take data covarance matrix and translate into a format corresponding to each edge
     # We have to put everything in a one-dimensional vector now, which requires a lot more work
     # Initial condition setup is in this loop too.
