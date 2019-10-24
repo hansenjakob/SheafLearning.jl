@@ -4,7 +4,7 @@ using LinearAlgebra
 using Random
 
 rng = Random.MersenneTwister(10324)
-Nv = 10
+Nv = 25 
 dv = 2
 Nsamples = 3000
 X = randn(rng,Nv*dv,Nsamples);
@@ -14,6 +14,7 @@ beta = 0.02
 Ne = div(Nv*(Nv-1),2) 
 
 
+SheafLearning.recover_sheaf_Laplacian_SCS(M,10,0,Nv,[dv for i in 1:Nv];verbose=true)
 
 ### Test objective functions 
 #@test SheafLearning.sheaf_obj(ones(2dv,2dv,Ne),ones(2dv,2dv,Ne),0,0,Nv,dv,1,false) ≈ norm(ones(2dv,2dv,Ne))^2
