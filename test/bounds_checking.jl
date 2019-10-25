@@ -1,0 +1,6 @@
+@test_throws DimensionMismatch recover_sheaf_Laplacian([1 1],alpha,beta,Nv,dv)
+@test_throws DimensionMismatch recover_sheaf_Laplacian([1 2; 3 4],alpha,beta,2,3)
+@test_throws DimensionMismatch recover_mw_Laplacian([1 1],alpha,beta,Nv,dv)
+@test_throws DimensionMismatch recover_mw_Laplacian([1 2; 3 4],alpha,beta,2,3)
+@test_throws DimensionMismatch project_to_sheaf_Laplacian([1 1],Nv,dv)
+@test_throws DimensionMismatch project_to_sheaf_Laplacian([1 2; 3 4],2,3)

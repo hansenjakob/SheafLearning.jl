@@ -373,10 +373,11 @@ Runs an interior point method for convex functions with convex constraints.
 - verbose: print information about the progress of the algorithm
 """
 function interior_point(objective,gradient,initial_condition,total_constraint_degree,tol=1e-7,maxouter=20,tscale=25,verbose=true)
-    t = 1
+    
     state = initial_condition
     m = total_constraint_degree
-    oldobj = objective(state,t,false)
+    oldobj = objective(state,1,false)
+    t = m/oldobj
 
     # This is the main loop. At each step, minimizes a perturbed version of the objective function with a barrier function preventing the minimizer from leaving the feasible region.
     # After each loop, the barrier function is scaled, so that the sequence of minimizers follows a path that converges to the optimum of the constrained problem.
@@ -384,7 +385,7 @@ function interior_point(objective,gradient,initial_condition,total_constraint_de
     for outeriter = 1:maxouter
         gradient_data! = (param_grad,param_state) -> gradient(param_grad,param_state,t)
         obj_data = (param_state) -> objective(param_state,t,true)
-        res = optimize(obj_data,gradient_data!,state,method=GradientDescent(),show_trace=verbose)
+        res = optimize(obj_data,gradient_data!,state,method=LBFGS(),show_trace=verbose,show_every=20)
         state = Optim.minimizer(res)
         t *= tscale
         newobj = objective(state,t,false)
