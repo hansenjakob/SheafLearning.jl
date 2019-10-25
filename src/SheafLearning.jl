@@ -15,25 +15,26 @@ function sheaf_obj(Me,Le::Array{Float64,3},alpha,beta,Nv,dv,t,barrier=true)
     if !is_valid_edge_matrix(Le,1e-12)
         return Inf
     end
-
     trL = zeros(Nv)
     e = 1
     for i = 1:Nv
         for j = i+1:Nv
-            trL[i] += tr(Le[1:dv,1:dv,e])
-            trL[j] += tr(Le[dv+1:2*dv,dv+1:2*dv,e])
+            for k = 1:dv
+                @inbounds trL[i] += Le[k,k,e]
+                @inbounds trL[j] += Le[dv+k,dv+k,e]
+            end
             e += 1
         end
     end
 
     obj = dot(Le,Me)
-    obj += -alpha*sum(log.(trL))
-    obj += beta*norm(Le[1:dv,dv+1:dv*2,:])^2
+    obj -= alpha*sum(log.(trL))
+    @views obj += beta*norm(Le[1:dv,dv+1:2dv,:])^2 
     if barrier
         obj *= t
         Ne = div(Nv*(Nv-1),2)
         for e = 1:Ne
-            obj += -log(det(Le[:,:,e]))
+            @inbounds obj += -log(det(Le[:,:,e]))
         end
     end
     return obj
@@ -75,22 +76,25 @@ function sheaf_obj_gradient!(grad::Array{Float64,3},Me,Le::Array{Float64,3},alph
     e = 1
     for i = 1:Nv
         for j = i+1:Nv
-            trL[i] += tr(Le[1:dv,1:dv,e])
-            trL[j] += tr(Le[dv+1:2*dv,dv+1:2*dv,e])
+            for k = 1:dv
+                @inbounds trL[i] += Le[k,k,e]
+                @inbounds trL[j] += Le[dv+k,dv+k,e]
+            end
             e += 1
         end
     end
-    trLinv = (trL).^-1
+    trL .= -alpha.*(trL).^-1
     e = 1
-    grad[:,:,:] = t*Me[:,:,:]
+    grad .= Me
+    @views grad[1:dv,dv+1:2dv,:] += beta.*Le[1:dv,dv+1:2dv,:]
+    @views grad[dv+1:2dv,1:dv,:] += beta.*Le[dv+1:2dv,1:dv,:]
     for i = 1:Nv
         for j = i+1:Nv
-            grad[1:dv,dv+1:2dv,e] += t*beta*Le[1:dv,dv+1:2dv,e]
-            grad[dv+1:2dv,1:dv,e] += t*beta*Le[dv+1:2dv,1:dv,e] 
             for k = 1:dv
-                grad[k,k,e] += -t*alpha*trLinv[i]
-                grad[dv+k,dv+k,e] += -t*alpha*trLinv[j]
+                @inbounds grad[k,k,e] += trL[i]
+                @inbounds grad[dv+k,dv+k,e] += trL[j]
             end
+            grad[:,:,e] *= t
             grad[:,:,e] += -inv(Le[:,:,e])
             e += 1
         end
