@@ -303,61 +303,7 @@ function check_reg_params(alpha,beta)
     end
 end
 
-"""
-    edge_matrices_to_Laplacian(Le, Nv, dv)
 
-Compute a sheaf Laplacian L from an array Le of compressed edge contribution matrices as returned by recover_sheaf_Laplacian.
-
-"""
-function edge_matrices_to_Laplacian(Le::Array{Float64,3},Nv,dv::Int)
-    L = zeros(Nv*dv,Nv*dv)
-    e = 1
-    for i = 1:Nv
-        for j = i+1:Nv
-            indices = [dv*(i-1)+1:dv*i; dv*(j-1)+1:dv*j]
-            L[indices,indices] += Le[:,:,e]
-            e += 1
-        end
-    end
-    return L
-end
-
-function edge_matrices_to_Laplacian(Le::Array{Array{Float64,2},1},Nv,dv::Array{Int,1})
-    totaldims = sum(dv)
-    L = zeros(totaldims,totaldims)
-    blockends = cumsum(dv)
-    blockindices = [blockends[i]-dv[i]+1:blockends[i] for i in 1:Nv]
-    e = 1
-    for i = 1:Nv
-        for j = i+1:Nv
-            indices = [blockindices[i]; blockindices[j]]
-            L[indices,indices] += Le[e]
-            e += 1
-        end
-    end 
-    return L
-end
-
-"""
-    edge_weights_to_Laplacian(We, Nv, dv)
-
-Compute a sheaf Laplacian L from an array We of matrix-valued edge weights as returned by recover_mw_Laplacian.
-
-"""
-function edge_weights_to_Laplacian(We,Nv,dv)
-    L = zeros(Nv*dv,Nv*dv)
-    e = 1
-    for i = 1:Nv
-        for j = i+1:Nv
-            L[dv*(i-1)+1:dv*i,dv*(j-1)+1:dv*j] = -We[:,:,e]
-            L[dv*(j-1)+1:dv*j,dv*(i-1)+1:dv*i] = -We[:,:,e]
-            L[dv*(i-1)+1:dv*i,dv*(i-1)+1:dv*i] += We[:,:,e]
-            L[dv*(j-1)+1:dv*j,dv*(j-1)+1:dv*j] += We[:,:,e]
-            e += 1
-        end
-    end
-    return L
-end
 
 """
     interior_point(objective,gradient,initial_condition,total_constraint_degree,tol=1e-7,maxouter=20,tscale=25,verbose=false)
@@ -405,27 +351,7 @@ function interior_point(objective,gradient,initial_condition,total_constraint_de
     return state, oldobj
 end
 
-function vectorize_M(M,Nv,dv::Int)
-    Ne = div(Nv*(Nv-1),2)
-    # Take data covarance matrix and translate into a format corresponding to each edge
-    Me = zeros(2dv,2dv,Ne)
-    e = 1
-    for i = 1:Nv
-        for j = i+1:Nv
-            indices = [dv*(i-1)+1:dv*i; dv*(j-1)+1:dv*j]
-            Me[:,:,e] = M[indices,indices]
-            e += 1
-        end
-    end
 
-    # Prepare initial condition
-    Le = zeros(2dv,2dv,Ne)
-    for e = 1:Ne
-        Le[:,:,e] = Matrix{Float64}(I, dv*2, dv*2)
-    end 
-
-    return Me, Le
-end
 
 
 """
@@ -527,30 +453,7 @@ function recover_mw_Laplacian(M,alpha,beta,Nv,dv::Int;tol=1e-7,maxouter=20,tscal
     return We, oldobj
 end
 
-function vectorize_M(M,Nv,dv::Array{Int,1})
-    totaldims = sum(dv)
-    Ne = div(Nv*(Nv-1),2)
 
-    blockends = cumsum(dv)
-    blockindices = [blockends[i]-dv[i]+1:blockends[i] for i in 1:Nv]
-    edge_matrix_sizes = [(dv[i] + dv[j]) for i in 1:Nv for j in i+1:Nv]
-    Me = zeros(sum(edge_matrix_sizes.^2))
-    Le = zeros(size(Me))
-    e = 1
-    startidx = 1
-    for i = 1:Nv
-        for j = i+1:Nv
-            indices = [blockindices[i]; blockindices[j]]
-            veclength = (edge_matrix_sizes[e])^2
-            Mvec = reshape(M[indices,indices],veclength)
-            Me[startidx:startidx+veclength-1] = Mvec
-            Le[startidx:startidx+veclength-1] = reshape(Matrix{Float64}(I,(edge_matrix_sizes[e],edge_matrix_sizes[e])),veclength)
-            startidx += veclength
-            e += 1
-        end
-    end
-    return Me, Le, edge_matrix_sizes
-end
 
 function recover_sheaf_Laplacian(M,alpha,beta,Nv,dv::Array{Int,1};tol=1e-7,maxouter=20,tscale=25,verbose=false)
     check_dims(M,Nv,dv)
@@ -599,125 +502,10 @@ function recover_sheaf_Laplacian(M,alpha,beta,Nv,dv::Array{Int,1};tol=1e-7,maxou
     return Le_out, oldobj
 end
 
-
+include("utilities.jl")
 include("sheafprojection.jl")
 
-function vectorize_M_triangular(M,Nv,dv::Array{Int,1})
-    totaldims = sum(dv)
-    Ne = div(Nv*(Nv-1),2)
-
-    blockends = cumsum(dv)
-    blockindices = [blockends[i]-dv[i]+1:blockends[i] for i in 1:Nv]
-    edge_matrix_sizes = [(dv[i] + dv[j]) for i in 1:Nv for j in i+1:Nv]
-    edge_vec_sizes = div.(edge_matrix_sizes.*(edge_matrix_sizes.+1),2)
-    Me = zeros(sum(edge_vec_sizes))
-    Le = zeros(size(Me))
-    e = 1
-    startidx = 1
-    for i = 1:Nv
-        for j = i+1:Nv
-            indices = [blockindices[i]; blockindices[j]]
-            veclength = div(edge_matrix_sizes[e]*(edge_matrix_sizes[e]+1),2)
-            Mvec = sym2vec(M[indices,indices])
-            Me[startidx:startidx+veclength-1] = Mvec
-            Le[startidx:startidx+veclength-1] = sym2vec(Matrix{Float64}(I,(edge_matrix_sizes[e],edge_matrix_sizes[e])))
-            startidx += veclength
-            e += 1
-        end
-    end
-    return Me, Le, edge_matrix_sizes
-end
-
-
-function recover_sheaf_Laplacian_SCS(M,alpha,beta,Nv,dv::Array{Int,1};tol=1e-7,verbose=false)
-    check_dims(M,Nv,dv)
-    check_reg_params(alpha,beta) 
-    totaldims = sum(dv)
-    Ne = div(Nv*(Nv-1),2)
-
-    Me, Levec, edge_matrix_sizes = vectorize_M_triangular(M,Nv,dv)
-    c = [Me; [-alpha for i in 1:Nv]; beta]
-    edge_vec_sizes = div.(edge_matrix_sizes.*(edge_matrix_sizes.+1),2)
-    total_sdc_vector_size = sum(edge_vec_sizes)
-    SDC_coefficients = spzeros(total_sdc_vector_size,length(c))
-    for i = 1:total_sdc_vector_size
-        SDC_coefficients[i,i] = 1
-    end
-
-    total_SOC_size = sum([dv[i]*dv[j] for i in 1:Nv for j in i+1:Nv])
-    SOC_coefficients = spzeros(total_SOC_size+1,length(c))
-    SOC_coefficients[1,length(c)] = 1
-    k = 2
-    startidx = 0
-    e = 1
-    for v = 1:Nv
-        for u = v+1:Nv
-            for i = dv[v]+1:dv[v]+dv[u]
-                for j = 1:dv[v]
-                    col_idx = startidx + square_to_triangle_idx(i,j,dv[v]+dv[u]) 
-                    SOC_coefficients[k,col_idx] = 1
-                    k += 1
-                end
-            end
-        startidx += edge_vec_sizes[e]
-        e += 1
-        end
-    end
-
-    EXP_coefficients = spzeros(3*Nv,length(c))
-    EXP_rhs = zeros(3*Nv)
-    k = 1
-    e = 1
-    startidx = 0
-    for v = 1:Nv
-        for u = v+1:Nv
-            for i = 1:dv[v]
-                col_idx = startidx + square_to_triangle_idx(i,i,dv[v]+dv[u])
-                EXP_coefficients[3*v,col_idx] += 1
-            end
-            for i = dv[v]+1:dv[v]+dv[u]
-                col_idx = startidx + square_to_triangle_idx(i,i,dv[v]+dv[u])
-                EXP_coefficients[3*u,col_idx] += 1
-            end
-            startidx += edge_vec_sizes[e]
-            e += 1
-        end
-        EXP_coefficients[3*(v-1)+1,total_sdc_vector_size+v] = 1
-        EXP_rhs[3*(v-1)+2] = 1
-    end
-
-    constraint_matrix = [-SOC_coefficients; -SDC_coefficients; -EXP_coefficients]
-    rhs_constraint = [zeros(total_sdc_vector_size);zeros(total_SOC_size+1);EXP_rhs]
-
-    mn = size(constraint_matrix)
-    sol = SCS_solve(SCS.Direct,
-                mn[1],
-                mn[2],
-                constraint_matrix,
-                rhs_constraint,
-                c,
-                0, #No equality constraints
-                0, #no linear constraints
-                [size(SOC_coefficients)[1]], #array of SOC cone sizes
-                #1, #number of SOC constraints
-                edge_matrix_sizes, #array of SDC cone sizes
-                #Ne, #number of SDC constraints
-                Nv, #number of exponential cone constraints
-                0, #number of dual exponential cone constraints
-                Array{Float64,1}(), #array of power cone parameters
-                #0 #number of power cone constraints
-                )
-
-    
-    Le = Array{Array{Float64,2},1}()
-    startidx = 1
-    for e = 1:Ne
-        push!(Le,vec2sym(sol.x[startidx:startidx+edge_vec_sizes[e]-1],edge_matrix_sizes[e]))
-        startidx += edge_vec_sizes[e]
-    end
-    return Le
-
-end
+include("conicprogramming.jl")
 
 
 

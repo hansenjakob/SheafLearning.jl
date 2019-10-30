@@ -13,6 +13,8 @@ alpha = 1.
 beta = 0.02
 Ne = div(Nv*(Nv-1),2) 
 
+Le, loss = SheafLearning.recover_sheaf_Laplacian_MOI(M,alpha,beta,Nv,[dv for i in 1:Nv])
+
 
 include("function_tests.jl")
 

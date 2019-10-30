@@ -1,38 +1,7 @@
 using LinearAlgebra, SCS
 using SparseArrays
 
-#translates a symmetric matrix M into a vector in the format required by SCS
-function sym2vec(M)
-    dim = size(M)[1]
-    Mvec = zeros(div(dim*(dim+1),2))
-    k = 1
-    for j = 1:dim
-        Mvec[k] = M[j,j]
-        k += 1
-        for i = j+1:dim
-            Mvec[k] = sqrt(2)*M[i,j]
-            k += 1
-        end
-    end
-    return Mvec
-end
 
-#translates a vector from SCS format to a symmetric matrix. Requires dimension of the resulting matrix
-function vec2sym(V,dim)
-    M = zeros(dim,dim)
-    k = 1
-    for j = 1:dim
-        M[j,j] = V[k]
-        k += 1
-        for i = j+1:dim
-            v = V[k]/sqrt(2)
-            M[i,j] = v
-            M[j,i] = v
-            k += 1
-        end
-    end
-    return M
-end
 
 
 ## Functions for translating indices between various shapes for the matrices making up sheaf Laplacians
