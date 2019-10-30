@@ -149,8 +149,43 @@ function vectorize_M_triangular(M,Nv,dv::Array{Int,1};lower=true)
     return Me, Le, edge_matrix_sizes
 end
 
+function is_valid_edge_matrix(Le::Array{Float64,3},eps)
+    dim = size(Le)[1]
+    Ne = size(Le)[3]
+    for i = 1:Ne
+        if det(Le[:,:,i]) < eps
+            return false
+        end
+        for k = 1:dim
+            if Le[k,k,i] < eps
+                return false
+            end
+        end
+    end
+    return true
+end
+
+function is_valid_edge_matrix(Le::Array{Float64,1},blocksizes,eps)
+    Ne = length(blocksizes)
+    startidx = 1
+    for e = 1:Ne
+        edge_mat = reshape(Le[startidx:startidx+blocksizes[e]^2 - 1],(blocksizes[e],blocksizes[e]))
+        if det(edge_mat) < eps
+            return false
+        end
+        for k = 1:blocksizes[e]
+            if edge_mat[k,k] < eps
+                return false
+            end
+        end
+        startidx += blocksizes[e]^2
+    end
+    return true
+end
 
 
+
+###User-facing utility functions
 
 """
     edge_matrices_to_Laplacian(Le, Nv, dv)
@@ -173,7 +208,6 @@ end
 
 
 
-###User-facing utility functions
 function edge_matrices_to_Laplacian(Le::Array{Array{Float64,2},1},Nv,dv::Array{Int,1})
     totaldims = sum(dv)
     L = zeros(totaldims,totaldims)
