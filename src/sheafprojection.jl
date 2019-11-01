@@ -1,40 +1,6 @@
 using LinearAlgebra, SCS
 using SparseArrays
 
-#translates a symmetric matrix M into a vector in the format required by SCS
-function sym2vec(M)
-    dim = size(M)[1]
-    Mvec = zeros(div(dim*(dim+1),2))
-    k = 1
-    for j = 1:dim
-        Mvec[k] = M[j,j]
-        k += 1
-        for i = j+1:dim
-            Mvec[k] = sqrt(2)*M[i,j]
-            k += 1
-        end
-    end
-    return Mvec
-end
-
-#translates a vector from SCS format to a symmetric matrix. Requires dimension of the resulting matrix
-function vec2sym(V,dim)
-    M = zeros(dim,dim)
-    k = 1
-    for j = 1:dim
-        M[j,j] = V[k]
-        k += 1
-        for i = j+1:dim
-            v = V[k]/sqrt(2)
-            M[i,j] = v
-            M[j,i] = v
-            k += 1
-        end
-    end
-    return M
-end
-
-
 ## Functions for translating indices between various shapes for the matrices making up sheaf Laplacians
 # Translates linear indices from vectors for symmetric matrices into 2d indices for a matrix. (lower triangular index returned)
 function triangle_to_square_idx(k,sqdim)
@@ -133,9 +99,9 @@ Uses SCS --- Splitting Conic Solver --- as a backend.
 Returns the Laplacian matrix L as well as the squared distance between the two matrices.
 
 """
-function project_to_sheaf_Laplacian(M,Nv,dv;verbose=0)
+function project_to_sheaf_Laplacian(M,Nv,dv;verbose=false)
     check_dims(M,Nv,dv)
-
+    verbose_int = verbose ? 1 : 0
     Ne = div(Nv*(Nv-1),2) 
     ncols = Ne*div(dv*(dv+1),2)
     nrows = div(Nv*dv*(Nv*dv+1),2) 
@@ -159,7 +125,7 @@ function project_to_sheaf_Laplacian(M,Nv,dv;verbose=0)
     0, 
     0, #no exponential constraints
     Array{Float64,1}(); #array of power cone parameters (empty)
-    verbose=verbose)
+    verbose=verbose_int)
 
     Le = zeros(2dv,2dv,Ne)
     k = 2

@@ -4,34 +4,30 @@ using LinearAlgebra
 using Random
 
 rng = Random.MersenneTwister(10324)
-Nv = 10
+Nv = 10 
 dv = 2
 Nsamples = 3000
+alpha = 1.
+beta = 0.02
+Ne = div(Nv*(Nv-1),2)
+
+Pe = 0.2
+A,Bgraph,Ne_actual = SheafLearning.er_graph(Nv,Pe,rng)
+Bsheaf = SheafLearning.random_Gaussian_sheaf(Bgraph,dv,dv,rng)
+L = Bsheaf'*Bsheaf
+
+X = SheafLearning.sample_smooth_vectors_tikh(L,Nsamples,10,rng)
+M = X*X'/Nsamples
+
+include("function_tests.jl")
+
+include("optimizer_tests.jl")
+
+include("scs_learning_tests.jl")
+
 X = randn(rng,Nv*dv,Nsamples);
 M = X*X'/Nsamples;
-alpha = 1
-beta = 0.02
 
+include("projection_tests.jl")
 
-Le, loss = recover_sheaf_Laplacian(M,alpha,beta,Nv,dv,true)
-
-We, loss = recover_mw_Laplacian(M,alpha,beta,Nv,dv,true)
-
-L, dist = project_to_sheaf_Laplacian(M,Nv,dv)
-
-@test isapprox(norm(L-M)^2,dist; atol=1e-10) 
-
-L, dist = project_to_sheaf_Laplacian(Matrix{Float64}(I, dv*Nv, dv*Nv),Nv,dv)
-@test L ≈ Matrix{Float64}(I,dv*Nv,dv*Nv)
-@test isapprox(dist,0; atol=1e-15) 
-
-L, dist = project_to_sheaf_Laplacian(ones(6,6),3,2)
-
-@test dist > 1
-
-@test_throws DimensionMismatch recover_sheaf_Laplacian([1 1],alpha,beta,Nv,dv)
-@test_throws DimensionMismatch recover_sheaf_Laplacian([1 2; 3 4],alpha,beta,2,3)
-@test_throws DimensionMismatch recover_mw_Laplacian([1 1],alpha,beta,Nv,dv)
-@test_throws DimensionMismatch recover_mw_Laplacian([1 2; 3 4],alpha,beta,2,3)
-@test_throws DimensionMismatch project_to_sheaf_Laplacian([1 1],Nv,dv)
-@test_throws DimensionMismatch project_to_sheaf_Laplacian([1 2; 3 4],2,3)
+include("bounds_checking.jl")
