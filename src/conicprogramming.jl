@@ -2,12 +2,11 @@ using MathOptInterface
 using MosekTools
 const MOI = MathOptInterface
 
-
 """
-    recover_sheaf_Laplacian_mosek(M,alpha,beta,Nv,dv;verbose=false)
+    recover_sheaf_Laplacian_mosek(M,alpha,beta,Nv,dv; verbose=false)    
 
 Solves the optimization problem
-min tr(LM) + alpha \sum log tr(L_vv) + beta || offdiag(L) ||_F 
+min tr(LM) + alpha Σ_v log tr(L_vv) + beta || offdiag(L) ||_F 
 with L constrained to the cone of sheaf Laplacians.
 Note that this problem is slightly different than the one solved by other implementations:
 the Frobenius norm term is not squared. This makes it possible to implement in standard conic optimization solvers.
@@ -16,21 +15,23 @@ Sets up the optimization problem and calls Mosek via MathOptInterface, hence req
 
 dv should be an array of length Nv, containing the vertex stalk dimensions.
 """
-function recover_sheaf_Laplacian_mosek(M,alpha,beta,Nv,dv::Array{Int,1};verbose=false)
+function recover_sheaf_Laplacian_mosek(M,alpha,beta,Nv,dv::Array{Int,1}; verbose=false)
     check_dims(M,Nv,dv)
     check_reg_params(alpha,beta) 
-    optimizer = MOI.Bridges.full_bridge_optimizer(Mosek.Optimizer(),Float64)
+    optimizer = MOI.Bridges.full_bridge_optimizer(Mosek.Optimizer(QUIET = !verbose),Float64)
     #optimizer = MOI.Bridges.full_bridge_optimizer(SCS.Optimizer(),Float64)
     
     #optimizer = MOI.Utilities.MockOptimizer()
     model = MOI.Utilities.Model{Float64}()
     cache_opt = MOI.Utilities.CachingOptimizer(model,optimizer)
-    @time x = construct_sheaf_problem_MOI(cache_opt,M,alpha,beta,Nv,dv;verbose)
+    x = construct_sheaf_problem_mosek(cache_opt,M,alpha,beta,Nv,dv;verbose=verbose)
     
     MOI.optimize!(cache_opt)
-    status = MOI.get(cache_opt, MOI.TerminationStatus())
-    println(status)
-    sol = MOI.get(cache_opt, MOI.VariablePrimal(), x)
+    status = MOI.get(optimizer, MOI.TerminationStatus())
+    if verbose
+        println("Optimizer terminated with status ",status)
+    end
+    sol = MOI.get(optimizer, MOI.VariablePrimal(), x)
     Ne = div(Nv*(Nv-1),2)
 
     Me, Levec, edge_matrix_sizes = vectorize_M_triangular(M,Nv,dv;lower=false)
@@ -49,7 +50,7 @@ end
 
 
 # This function takes an empty model and instantiates the correctly parameterized sheaf optimization problem
-function construct_sheaf_problem_mosek(optimizer,M,alpha,beta,Nv,dv;verbose=false)
+function construct_sheaf_problem_mosek(optimizer,M,alpha,beta,Nv,dv; verbose=false)
     totaldims = sum(dv)
     Ne = div(Nv*(Nv-1),2)
 
@@ -72,7 +73,7 @@ function construct_sheaf_problem_mosek(optimizer,M,alpha,beta,Nv,dv;verbose=fals
         println("Constructing and adding SDP constraints")
     end
     startidx = 0
-    @time for e = 1:Ne
+    for e = 1:Ne
         Le = MOI.VectorOfVariables(x[startidx+1:startidx+edge_vec_sizes[e]])
         MOI.add_constraint(optimizer,Le,MOI.PositiveSemidefiniteConeTriangle(edge_matrix_sizes[e]))
         startidx += edge_vec_sizes[e]
@@ -87,8 +88,9 @@ function construct_sheaf_problem_mosek(optimizer,M,alpha,beta,Nv,dv;verbose=fals
     
     #SOC_indices_list = zeros(Int64,1+total_SOC_size)
     #SOC_indices_list[1] = total_sdc_vector_size + 1
-    SOC_indices_list = [total_sdc_vector_size + 1; total_sdc_vector_size + 1 + 3Nv + 1:total_SOC_size]
-    
+    start_soc_indices = total_sdc_vector_size + 1 + 3Nv
+    SOC_indices_list = [total_sdc_vector_size + 1; start_soc_indices+1:start_soc_indices+total_SOC_size]
+    #println(SOC_indices_list)
     #for i = 1:total_SOC_size
     #    SOC_indices_list[i+1] = total_sdc_vector_size+1+3Nv +i
     #end
@@ -96,7 +98,7 @@ function construct_sheaf_problem_mosek(optimizer,M,alpha,beta,Nv,dv;verbose=fals
     k = 1
     startidx = 0
     e = 1
-    @time for v = 1:Nv
+    for v = 1:Nv
         for u = v+1:Nv
             for i = dv[v]+1:dv[v]+dv[u]
                 for j = 1:dv[v]
@@ -151,13 +153,14 @@ function construct_sheaf_problem_mosek(optimizer,M,alpha,beta,Nv,dv;verbose=fals
         trLv_cone = MOI.VectorOfVariables(x[trLv_cone_indices])
         MOI.add_constraint(optimizer,trLv_cone,MOI.ExponentialCone()) #exp(x_v) <= z_v
     end
+    return x
 end
 
 """
-    recover_sheaf_Laplacian_SCS(M,alpha,beta,Nv,dv;verbose=false)
+    recover_sheaf_Laplacian_SCS(M,alpha,beta,Nv,dv,verbose=false)
 
 Solves the optimization problem
-min tr(LM) + alpha \sum log tr(L_vv) + beta || offdiag(L) ||_F 
+min tr(LM) + alpha Σ_v log tr(L_vv) + beta || offdiag(L) ||_F 
 with L constrained to the cone of sheaf Laplacians.
 Note that this problem is slightly different than the one solved by other implementations:
 the Frobenius norm term is not squared. This makes it possible to implement in standard conic optimization solvers.
@@ -166,12 +169,13 @@ Sets up the problem and calls SCS to solve.
 
 dv should be an array of length Nv, containing the vertex stalk dimensions.
 """
-function recover_sheaf_Laplacian_SCS(M,alpha,beta,Nv,dv::Array{Int,1};tol=1e-7,verbose=false)
+function recover_sheaf_Laplacian_SCS(M,alpha,beta,Nv,dv::Array{Int,1};max_iters=5000,verbose=false)
     check_dims(M,Nv,dv)
     check_reg_params(alpha,beta) 
     totaldims = sum(dv)
     Ne = div(Nv*(Nv-1),2)
 
+    verbose_int = verbose ? 1 : 0
     Me, Levec, edge_matrix_sizes = vectorize_M_triangular(M,Nv,dv)
     c = [Me; [-alpha for i in 1:Nv]; beta]
     edge_vec_sizes = div.(edge_matrix_sizes.*(edge_matrix_sizes.+1),2)
@@ -243,6 +247,8 @@ function recover_sheaf_Laplacian_SCS(M,alpha,beta,Nv,dv::Array{Int,1};tol=1e-7,v
                 0, #number of dual exponential cone constraints
                 Array{Float64,1}(), #array of power cone parameters
                 #0 #number of power cone constraints
+                verbose = verbose_int,
+                max_iters = max_iters
                 )
 
     

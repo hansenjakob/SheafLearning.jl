@@ -69,7 +69,7 @@ function interior_point(objective,gradient,initial_condition,total_constraint_de
     state = initial_condition
     m = total_constraint_degree
     oldobj = objective(state,1,false)
-    t = m/oldobj
+    t = 1 #m/oldobj
 
     # This is the main loop. At each step, minimizes a perturbed version of the objective function with a barrier function preventing the minimizer from leaving the feasible region.
     # After each loop, the barrier function is scaled, so that the sequence of minimizers follows a path that converges to the optimum of the constrained problem.
@@ -82,13 +82,13 @@ function interior_point(objective,gradient,initial_condition,total_constraint_de
         t *= tscale
         newobj = objective(state,t,false)
         if verbose
-            println("step $outeriter objective: $newobj")
-            println("t = $t")
+            println("step ", outeriter, " objective: ", newobj)
+            println("t = ", t)
         end
         if (m/t < tol)
-            #if verbose
-                println("Desired tolerance $tol reached")
-            #end
+            if verbose
+                println("Desired tolerance ", tol, " reached with duality gap bounded by ", m/t)
+            end
             oldobj = newobj
             break
         end
@@ -110,7 +110,7 @@ Arguments
 - M: data covariance matrix XX^T
 - alpha, beta: regularization parameters >= 0
 - Nv: number of vertices
-- dv: dimension of vertex stalks
+- dv: dimension of vertex stalks (either an integer or a list of length Nv)
 - tol: accuracy required---the interior point method guarantees this level of suboptimality
 - maxouter: maximum number of iterations for the outer loop of the interior point method
 - tscale: amount to scale the barrier parameter by in each iteration

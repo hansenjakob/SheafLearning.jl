@@ -32,7 +32,14 @@ function vec2sym(V,dim)
     end
     return M
 end
-
+function square_to_triangle_idx_upper(i,j,sqdim)
+    veclength = div(sqdim*(sqdim+1),2)
+    coi = sqdim - i + 1
+    coj = sqdim - j + 1
+    cok = square_to_triangle_idx(coi,coj,sqdim)
+    k = veclength - cok + 1
+    return k
+end
 #assumes the vector is the upper triangle, following columns
 function vec2sym_upper(V,dim)
     M = zeros(dim,dim)
@@ -243,4 +250,61 @@ function edge_weights_to_Laplacian(We,Nv,dv)
         end
     end
     return L
+end
+
+function er_graph(Nv,Pe,rng)
+    A = zeros(Nv,Nv)
+    Ne = 0
+    for i in 1:Nv
+        for j in i+1:Nv
+            if rand(rng) <= Pe
+                A[i,j] = 1
+                A[j,i] = 1
+                Ne = Ne + 1
+            end
+        end
+    end
+
+    B = zeros(Ne,Nv)
+
+    k = 1
+    for i in 1:Nv
+        for j in i+1:Nv
+            if A[i,j] == 1
+                B[k,i] = A[i,j]
+                B[k,j] = -A[i,j]
+                k = k + 1
+            end
+        end
+    end
+    return (A,B,Ne)
+end
+
+function random_Gaussian_sheaf(Bgraph,dv,de,rng)
+    Ne, Nv = size(Bgraph)
+    B = zeros(de*Ne,dv*Nv)
+    for i = 1:Ne
+        idx = findall(x -> x != 0, Bgraph[i,:])
+        v1 = idx[1]
+        v2 = idx[2]
+        B[1+de*(i-1):de*i,1+dv*(v1-1):dv*v1] = Bgraph[i,v1]*randn(rng,de,dv)
+        B[1+de*(i-1):de*i,1+dv*(v2-1):dv*v2] = Bgraph[i,v2]*randn(rng,de,dv)
+    end
+
+    return B
+end
+
+function sample_smooth_vectors_tikh(L,nsamples,smoothness,rng)
+    n,m = size(L)
+    L = L/norm(L)
+    e = eigen(L)
+    lambda = e.values
+    V = e.vectors
+    smoother = diagm((ones(n)+smoothness*lambda).^-1)
+    samples = randn(rng,n,nsamples)
+    samples = V*smoother*V'*samples
+    for i = 1:nsamples
+        samples[:,i] = samples[:,i]/norm(samples[:,i])
+    end
+    return samples
 end

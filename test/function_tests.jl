@@ -23,7 +23,7 @@ grad_vec = zeros(size(Le_vec))
 SheafLearning.sheaf_obj_gradient!(grad,Me,Le,alpha,beta,Nv,dv,1)
 SheafLearning.sheaf_obj_gradient!(grad_vec,Me_vec,Le_vec,alpha,beta,Nv,dv_vec,edge_matrix_sizes,1)
 
-@test reshape(grad,(2dv)^2*Ne) == grad_vec
+@test reshape(grad,(2dv)^2*Ne) ≈ grad_vec 
 
 SheafLearning.sheaf_obj_gradient!(grad,Me,Le./10000,alpha,beta,Nv,dv,500000)
 SheafLearning.sheaf_obj_gradient!(grad_vec,Me_vec,Le_vec./10000,alpha,beta,Nv,dv_vec,edge_matrix_sizes,500000)
