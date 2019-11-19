@@ -160,12 +160,12 @@ function sheaf_obj(Me::Array{Float64,1},Le::Array{Float64,1},alpha,beta,Nv,dv::A
     obj += -alpha*sum(log.(trL))
     obj += beta*off_diag_norm
     if barrier
-        #obj *= t
+        obj *= t
         Ne = div(Nv*(Nv-1),2)
         startidx = 1
         for e = 1:Ne
             edge_matrix = reshape(Le[startidx:startidx+edge_matrix_sizes[e]^2-1],(edge_matrix_sizes[e],edge_matrix_sizes[e]))
-            obj += -log(det(edge_matrix))/t
+            obj += -log(det(edge_matrix))
             startidx += edge_matrix_sizes[e]^2
         end
     end
@@ -197,7 +197,7 @@ function sheaf_obj_gradient!(grad::Array{Float64,1},Me::Array{Float64,1},Le::Arr
     trL = get_trace(Le,Nv,dv,edge_matrix_sizes)
     trLinv = (trL).^-1
 
-    grad[:] = Me[:]
+    grad[:] = t*Me[:]
     e = 1
     startidx = 1
     for i = 1:Nv
@@ -205,22 +205,22 @@ function sheaf_obj_gradient!(grad::Array{Float64,1},Me::Array{Float64,1},Le::Arr
             # accumulate gradients from off-diagonal norm
             for k = 1:dv[i]
                 for l = dv[i]+1:edge_matrix_sizes[e]
-                    grad[startidx+edge_matrix_sizes[e]*(k-1)+l-1] += beta*Le[startidx+edge_matrix_sizes[e]*(k-1)+l-1]
-                    grad[startidx+edge_matrix_sizes[e]*(l-1)+k-1] += beta*Le[startidx+edge_matrix_sizes[e]*(l-1)+k-1] 
+                    grad[startidx+edge_matrix_sizes[e]*(k-1)+l-1] += t*beta*Le[startidx+edge_matrix_sizes[e]*(k-1)+l-1]
+                    grad[startidx+edge_matrix_sizes[e]*(l-1)+k-1] += t*beta*Le[startidx+edge_matrix_sizes[e]*(l-1)+k-1] 
                 end
             end 
 
             # accumulate gradients from log trace term
             for k = 1:dv[i]
-                grad[startidx+edge_matrix_sizes[e]*(k-1)+k-1] += -alpha*trLinv[i]
+                grad[startidx+edge_matrix_sizes[e]*(k-1)+k-1] += -t*alpha*trLinv[i]
             end
             for k = dv[i]+1:edge_matrix_sizes[e]
-                grad[startidx+edge_matrix_sizes[e]*(k-1)+k-1] += -alpha*trLinv[j]
+                grad[startidx+edge_matrix_sizes[e]*(k-1)+k-1] += -t*alpha*trLinv[j]
             end 
 
             #accumulate gradients from barrier function
             inverse_matrix = inv(reshape(Le[startidx:startidx+edge_matrix_sizes[e]^2-1],(edge_matrix_sizes[e],edge_matrix_sizes[e])))
-            grad[startidx:startidx+edge_matrix_sizes[e]^2-1] += -reshape(inverse_matrix,edge_matrix_sizes[e]^2)/t
+            grad[startidx:startidx+edge_matrix_sizes[e]^2-1] += -reshape(inverse_matrix,edge_matrix_sizes[e]^2)
 
             startidx += edge_matrix_sizes[e]^2
             e += 1

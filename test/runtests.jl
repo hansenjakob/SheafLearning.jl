@@ -26,7 +26,7 @@ include("optimizer_tests.jl")
 include("scs_learning_tests.jl")
 
 X = randn(rng,Nv*dv,Nsamples);
-M = X*X'/Nsamples;
+M = X*X'/Nsamples; #only need a random SPD matrix for the projection tests
 
 include("projection_tests.jl")
 

@@ -1,5 +1,8 @@
 using LinearAlgebra, SCS
 using SparseArrays
+import MathOptInterface 
+using MosekTools
+const MOI = MathOptInterface
 
 ## Functions for translating indices between various shapes for the matrices making up sheaf Laplacians
 # Translates linear indices from vectors for symmetric matrices into 2d indices for a matrix. (lower triangular index returned)
@@ -92,7 +95,7 @@ function build_constraint_matrix(Nv,dv)
 end
 
 """
-    project_to_sheaf_cone(M,Nv,dv;verbose=0)
+    project_to_sheaf_Laplacian(M,Nv,dv;verbose=0)
 
 Takes a semidefinite matrix M of size (Nv*dv)x(Nv*dv) and finds the nearest sheaf Laplacian in the Frobenius norm.
 Uses SCS --- Splitting Conic Solver --- as a backend. 
@@ -134,4 +137,127 @@ function project_to_sheaf_Laplacian(M,Nv,dv;verbose=false)
         k += sdsize
     end
     return edge_matrices_to_Laplacian(Le,Nv,dv), sol.x[1]^2
+end
+
+"""
+    project_to_sheaf_Laplacian_mosek(M,Nv,dv;verbose=0)
+
+Takes a semidefinite matrix M of size (Nv*sum(dv))x(Nv*sum(dv)) and finds the nearest sheaf Laplacian in the Frobenius norm.
+Uses Mosek as a backend. 
+Returns the Laplacian matrix L as well as the squared distance between the two matrices.
+
+"""
+function project_to_sheaf_Laplacian_mosek(M,Nv,dv;verbose=false)
+    check_dims(M,Nv,dv)
+
+    optimizer = MOI.Bridges.full_bridge_optimizer(Mosek.Optimizer(QUIET = !verbose),Float64)
+    
+    model = MOI.Utilities.Model{Float64}()
+    cache_opt = MOI.Utilities.CachingOptimizer(model,optimizer)
+
+    totaldims = sum(dv)
+    Ne = div(Nv*(Nv-1),2)
+
+    Me, Levec, edge_matrix_sizes = vectorize_M(M,Nv,dv)
+    Mvec = vec(M)
+    edge_vec_sizes = edge_matrix_sizes.*edge_matrix_sizes
+    total_sdc_vector_size = sum(edge_vec_sizes)
+    block_starts = cumsum(dv) .- dv[1] 
+
+    c = [zeros(length(Levec)); 1; zeros(totaldims^2)]
+    x = MOI.add_variables(cache_opt,length(c)) #variables for the model
+    # x[1:length(Levec)] is the vectorized Le
+    # x[length(Levec)+1] is the t coordinate of the SOC
+    # x[length(Levec)+2:end] is the residual vec(L - M)
+
+    objective = MOI.ScalarAffineFunction(MOI.ScalarAffineTerm.(c,x),0.0)
+    MOI.set(optimizer, MOI.ObjectiveFunction{MOI.ScalarAffineFunction{Float64}}(),objective) #add objective function to model
+    MOI.set(optimizer, MOI.ObjectiveSense(), MOI.MIN_SENSE) #we're minimizing the objective
+
+    if verbose
+        println("Constructing and adding SDP constraints")
+    end
+    startidx = 0
+    for e = 1:Ne
+        Le = MOI.VectorOfVariables(x[startidx+1:startidx+edge_vec_sizes[e]])
+        MOI.add_constraint(cache_opt,Le,MOI.PositiveSemidefiniteConeSquare(edge_matrix_sizes[e]))
+        startidx += edge_vec_sizes[e]
+    end
+
+
+    #This loop finds which indices in vec(Le) contribute to each index in vec(L).
+    #It works by iterating through pairs of vertices (u,v) and then indices (i,j) in the edge matrix for the edge u \sim v.
+    #Depending on which block of the edge matrix the indices fall in, we get different output indices in vec(L).
+    if verbose
+        println("Constructing and adding linear equality constraints")
+    end
+    map_indices = [Array{Int64,1}() for k in 1:totaldims^2]
+    k = 1
+    vec_idx = (i,j,vdim) -> (j-1)*vdim + 1 + i - 1
+    for u = 1:Nv
+        for v = u+1:Nv
+            for j = 1:dv[u]
+                Lj = block_starts[u] + j 
+                for i = 1:dv[u]
+                    Li = block_starts[u] + i
+                    kout = vec_idx(Li,Lj,totaldims) 
+                    push!(map_indices[kout],k)
+                    k += 1
+                end
+                for i = 1:dv[v]
+                    Li = block_starts[v] + i
+                    kout = vec_idx(Li,Lj,totaldims) 
+                    push!(map_indices[kout],k)
+                    k += 1
+                end
+            end
+            for j = 1:dv[v]
+                Lj = block_starts[v] + j 
+                for i = 1:dv[u]
+                    Li = block_starts[u] + i
+                    kout = vec_idx(Li,Lj,totaldims) 
+                    push!(map_indices[kout],k)
+                    k += 1
+                end
+                for i = 1:dv[v]
+                    Li = block_starts[v] + i
+                    kout = vec_idx(Li,Lj,totaldims) 
+                    push!(map_indices[kout],k)
+                    k += 1
+                end
+            end
+        end
+    end
+
+    #Actually add the equality constraints to the model
+    for k = 1:totaldims^2
+        term = MOI.ScalarAffineTerm.([ones(length(map_indices[k])); 1.], [x[map_indices[k]]; x[length(Levec)+1+k]])
+        MOI.add_constraint(cache_opt,MOI.ScalarAffineFunction(term,0.0),MOI.EqualTo(Mvec[k]))
+    end
+
+    if verbose
+        println("Adding second order cone constraint")
+    end
+    SOC_variables = MOI.VectorOfVariables(x[length(Levec)+1:length(Levec)+1+totaldims^2])
+    MOI.add_constraint(cache_opt,SOC_variables,MOI.SecondOrderCone(1+totaldims^2))
+
+    MOI.optimize!(cache_opt)
+    status = MOI.get(optimizer, MOI.TerminationStatus())
+    if verbose
+        println("Optimizer terminated with status ",status)
+    end
+    sol = MOI.get(optimizer, MOI.VariablePrimal(), x)
+    optval = MOI.get(optimizer,MOI.ObjectiveValue())
+
+    Le = Array{Array{Float64,2},1}()
+    startidx = 1
+    for e = 1:Ne
+        push!(Le,reshape(sol[startidx:startidx+edge_vec_sizes[e]-1],(edge_matrix_sizes[e],edge_matrix_sizes[e])))
+        startidx += edge_vec_sizes[e]
+    end
+    L = edge_matrices_to_Laplacian(Le,Nv,dv)
+
+    return L, optval^2
+
+
 end
