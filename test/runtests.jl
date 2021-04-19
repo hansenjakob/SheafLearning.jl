@@ -3,7 +3,7 @@ using Test
 using LinearAlgebra
 using Random
 
-mosek = false
+mosek = true
 
 rng = Random.MersenneTwister(10324)
 Nv = 10 

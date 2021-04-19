@@ -29,7 +29,7 @@ The functions return tuples `(Le,obj)` and `(We,obj)`, respectively, where `Le` 
 edge_matrices_to_Laplacian(Le,Nv,dv)
 edge_weights_to_Laplacian(We,Nv,dv)
 ```
-There are three backends for ```recover_sheaf_Laplacian```: the conic solvers SCS (```"scs"```) and Mosek (```"mosek"```), and a hand-written direct solver (```"direct"```, not recommended, will probably be removed). Currently only the direct backend is implemented for ```recover_mw_Laplacian```.
+There are three backends for ```recover_sheaf_Laplacian```: the conic solvers [SCS](https://github.com/JuliaOpt/SCS.jl) (```"scs"```) and [Mosek](https://www.mosek.com) (```"mosek"```), and a hand-written direct solver (```"direct"```, not recommended). Currently only the direct backend is implemented for ```recover_mw_Laplacian```. The direct backend will probably be removed once the matrix-weighted problem is implemented as a conic program.
 
 The function ```project_to_sheaf_Laplacian``` minimizes
 
@@ -38,10 +38,10 @@ The function ```project_to_sheaf_Laplacian``` minimizes
 for `L` in the cone of sheaf Laplacians over graphs with `Nv` vertices and `dv`-dimensional vertex stalks. The signature is
 
 ```julia
-project_to_sheaf_Laplacian(M,Nv,dv;verbose=0)
+project_to_sheaf_Laplacian(M,Nv,dv;backend="scs",verbose=false)
 ```
 
-This problem is translated to a conic program and solved using [SCS](https://github.com/JuliaOpt/SCS.jl). An implementation with the Mosek backend is forthcoming.
+This problem is translated to a conic program and solved using either SCS or Mosek. 
 
 More information about the functions can be found using Julia's built-in help. Type `?[function_name]` into the REPL.
 

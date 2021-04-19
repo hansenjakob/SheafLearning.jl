@@ -4,8 +4,6 @@ import MathOptInterface
 using MosekTools
 const MOI = MathOptInterface
 
-##TODO: implement a Mosek backend for the projection problem
-
 ## Functions for translating indices between various shapes for the matrices making up sheaf Laplacians
 # Translates linear indices from vectors for symmetric matrices into 2d indices for a matrix. (lower triangular index returned)
 function triangle_to_square_idx(k,sqdim)
@@ -97,14 +95,14 @@ function build_constraint_matrix(Nv,dv)
 end
 
 """
-    project_to_sheaf_Laplacian(M,Nv,dv;verbose=0)
+    project_to_sheaf_Laplacian_scs(M,Nv,dv;verbose=0)
 
 Takes a semidefinite matrix M of size (Nv*dv)x(Nv*dv) and finds the nearest sheaf Laplacian in the Frobenius norm.
 Uses SCS --- Splitting Conic Solver --- as a backend. 
 Returns the Laplacian matrix L as well as the squared distance between the two matrices.
 
 """
-function project_to_sheaf_Laplacian(M,Nv,dv;verbose=false)
+function project_to_sheaf_Laplacian_scs(M,Nv,dv;verbose=false)
     check_dims(M,Nv,dv)
     verbose_int = verbose ? 1 : 0
     Ne = div(Nv*(Nv-1),2) 
