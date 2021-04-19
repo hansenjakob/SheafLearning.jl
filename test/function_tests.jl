@@ -1,6 +1,7 @@
 ### Test objective functions 
 #@test SheafLearning.sheaf_obj(ones(2dv,2dv,Ne),ones(2dv,2dv,Ne),0,0,Nv,dv,1,false) ≈ norm(ones(2dv,2dv,Ne))^2
 
+function test_functions(M,Nv,Ne,dv,alpha,beta)
 Me, Le = SheafLearning.vectorize_M(M,Nv,dv)
 for e = 1:Ne
     A = randn(rng,2dv,2dv)
@@ -14,7 +15,7 @@ Me_vec, Le_vec, edge_matrix_sizes = SheafLearning.vectorize_M(M,Nv,dv_vec)
 Le_vec = reshape(Le,size(Me_vec))
 obj_vec = SheafLearning.sheaf_obj(Me_vec,Le_vec,alpha,beta,Nv,dv_vec,edge_matrix_sizes,1,true)
 
-@test obj_const == obj_vec
+@test obj_const ≈ obj_vec
 
 ### Test gradient functions
 grad = zeros(size(Le))
@@ -29,3 +30,4 @@ SheafLearning.sheaf_obj_gradient!(grad,Me,Le./10000,alpha,beta,Nv,dv,500000)
 SheafLearning.sheaf_obj_gradient!(grad_vec,Me_vec,Le_vec./10000,alpha,beta,Nv,dv_vec,edge_matrix_sizes,500000)
 println(norm(reshape(grad,(2dv)^2*Ne)-grad_vec))
 @test reshape(grad,(2dv)^2*Ne) ≈ grad_vec
+end
