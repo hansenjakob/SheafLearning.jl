@@ -2,6 +2,8 @@ using MathOptInterface
 using MosekTools
 const MOI = MathOptInterface
 
+#TODO: write conic programs for matrix-weighted Laplacians and connection Laplacians
+
 """
     recover_sheaf_Laplacian_mosek(M,alpha,beta,Nv,dv; verbose=false)    
 
@@ -19,9 +21,7 @@ function recover_sheaf_Laplacian_mosek(M,alpha,beta,Nv,dv::Array{Int,1}; verbose
     check_dims(M,Nv,dv)
     check_reg_params(alpha,beta) 
     optimizer = MOI.Bridges.full_bridge_optimizer(Mosek.Optimizer(QUIET = !verbose),Float64)
-    #optimizer = MOI.Bridges.full_bridge_optimizer(SCS.Optimizer(),Float64)
     
-    #optimizer = MOI.Utilities.MockOptimizer()
     model = MOI.Utilities.Model{Float64}()
     cache_opt = MOI.Utilities.CachingOptimizer(model,optimizer)
     x = construct_sheaf_problem_mosek(cache_opt,M,alpha,beta,Nv,dv;verbose=verbose)
@@ -37,7 +37,6 @@ function recover_sheaf_Laplacian_mosek(M,alpha,beta,Nv,dv::Array{Int,1}; verbose
     Me, Levec, edge_matrix_sizes = vectorize_M_triangular(M,Nv,dv;lower=false)
     edge_vec_sizes = div.(edge_matrix_sizes.*(edge_matrix_sizes.+1),2)
     
-    
     Le = Array{Array{Float64,2},1}()
     startidx = 1
     for e = 1:Ne
@@ -49,22 +48,22 @@ function recover_sheaf_Laplacian_mosek(M,alpha,beta,Nv,dv::Array{Int,1}; verbose
 end
 
 
-# This function takes an empty model and instantiates the correctly parameterized sheaf optimization problem
+# This function takes an empty model and instantiates the correctly parameterized sheaf optimization problem as a MOI object
 function construct_sheaf_problem_mosek(optimizer,M,alpha,beta,Nv,dv; verbose=false)
     totaldims = sum(dv)
     Ne = div(Nv*(Nv-1),2)
 
-    Me, Levec, edge_matrix_sizes = vectorize_M_triangular(M,Nv,dv;lower=false)
+    Mevec, Levec, edge_matrix_sizes = vectorize_M_triangular(M,Nv,dv;lower=false)
     SOC_block_sizes = [dv[i]*dv[j] for i in 1:Nv for j in i+1:Nv]
     total_SOC_size = sum([dv[i]*dv[j] for i in 1:Nv for j in i+1:Nv])
 
     
-    c = [Me; beta; [-alpha for i in 1:Nv];  zeros(2Nv); zeros(total_SOC_size)]
+    obj_coefficients = [Mevec; beta; [-alpha for i in 1:Nv];  zeros(2Nv); zeros(total_SOC_size)] #coefficients for linear objective
     edge_vec_sizes = div.(edge_matrix_sizes.*(edge_matrix_sizes.+1),2)
     total_sdc_vector_size = sum(edge_vec_sizes)
 
-    x = MOI.add_variables(optimizer,length(c)) #variables for the model
-    objective = MOI.ScalarAffineFunction(MOI.ScalarAffineTerm.(c,x),0.0)
+    x = MOI.add_variables(optimizer,length(obj_coefficients)) #variables for the model
+    objective = MOI.ScalarAffineFunction(MOI.ScalarAffineTerm.(obj_coefficients,x),0.0)
     MOI.set(optimizer, MOI.ObjectiveFunction{MOI.ScalarAffineFunction{Float64}}(),objective) #add objective function to model
     MOI.set(optimizer, MOI.ObjectiveSense(), MOI.MIN_SENSE) #we're minimizing the objective
     
@@ -86,18 +85,13 @@ function construct_sheaf_problem_mosek(optimizer,M,alpha,beta,Nv,dv; verbose=fal
         println("Constructing and adding SOC constraints")
     end
     
-    #SOC_indices_list = zeros(Int64,1+total_SOC_size)
-    #SOC_indices_list[1] = total_sdc_vector_size + 1
     start_soc_indices = total_sdc_vector_size + 1 + 3Nv
     SOC_indices_list = [total_sdc_vector_size + 1; start_soc_indices+1:start_soc_indices+total_SOC_size]
-    #println(SOC_indices_list)
-    #for i = 1:total_SOC_size
-    #    SOC_indices_list[i+1] = total_sdc_vector_size+1+3Nv +i
-    #end
     
     k = 1
     startidx = 0
     e = 1
+    #this loop goes one scalar entry at a time
     for v = 1:Nv
         for u = v+1:Nv
             for i = dv[v]+1:dv[v]+dv[u]
@@ -119,7 +113,7 @@ function construct_sheaf_problem_mosek(optimizer,M,alpha,beta,Nv,dv; verbose=fal
         println("Constructing and adding exponential cone constraints")
     end
     
-    #Equality constraints for the trL terms. There's one variable z_v for each vertex v, constrained here to be equal to tr(L_vv)
+    #Equality constraints for the log(trL_vv) terms. There's one variable z_v for each vertex v, constrained here to be equal to tr(L_vv)
 
     #This loop extracts the indices of the semidefinite variables that contribute to each tr(L_vv) term.
     trL_indices = [Array{Int64,1}() for v in 1:Nv]
@@ -163,7 +157,7 @@ Solves the optimization problem
 min tr(LM) + alpha Σ_v log tr(L_vv) + beta || offdiag(L) ||_F 
 with L constrained to the cone of sheaf Laplacians.
 Note that this problem is slightly different than the one solved by other implementations:
-the Frobenius norm term is not squared. This makes it possible to implement in standard conic optimization solvers.
+the Frobenius norm term is not squared. This makes it easier to implement in standard conic optimization solvers.
 
 Sets up the problem and calls SCS to solve.
 
@@ -228,7 +222,7 @@ function recover_sheaf_Laplacian_SCS(M,alpha,beta,Nv,dv::Array{Int,1};max_iters=
     end
 
     constraint_matrix = [-SOC_coefficients; -SDC_coefficients; -EXP_coefficients]
-    rhs_constraint = [zeros(total_sdc_vector_size);zeros(total_SOC_size+1);EXP_rhs]
+    rhs_constraint = [zeros(total_SOC_size+1); zeros(total_sdc_vector_size); EXP_rhs]
 
     mn = size(constraint_matrix)
     sol = SCS_solve(SCS.Direct,
@@ -251,7 +245,7 @@ function recover_sheaf_Laplacian_SCS(M,alpha,beta,Nv,dv::Array{Int,1};max_iters=
                 max_iters = max_iters
                 )
 
-    
+    #extract the array of edge matrices
     Le = Array{Array{Float64,2},1}()
     startidx = 1
     for e = 1:Ne

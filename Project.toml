@@ -4,6 +4,8 @@ authors = ["Jakob Hansen <jhansen@math.upenn.edu>"]
 version = "0.1.0"
 
 [deps]
+Combinatorics = "861a8166-3701-5b0c-9a16-15d98fcdc6aa"
+Compat = "34da2185-b29b-5c13-b0c7-acf172513d20"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 MathOptInterface = "b8f27783-ece8-5eb3-8dc8-9495eed66fee"
 Mosek = "6405355b-0ac2-5fba-af84-adbd65488c0e"

@@ -4,6 +4,8 @@ import MathOptInterface
 using MosekTools
 const MOI = MathOptInterface
 
+##TODO: implement a Mosek backend for the projection problem
+
 ## Functions for translating indices between various shapes for the matrices making up sheaf Laplacians
 # Translates linear indices from vectors for symmetric matrices into 2d indices for a matrix. (lower triangular index returned)
 function triangle_to_square_idx(k,sqdim)

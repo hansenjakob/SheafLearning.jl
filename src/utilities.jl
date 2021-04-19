@@ -252,6 +252,42 @@ function edge_weights_to_Laplacian(We,Nv,dv)
     return L
 end
 
+#input validation
+function check_dims(M,Nv,dv::Int)
+    dims = size(M)
+    if length(dims) != 2 || dims[1] != dims[2] 
+        throw(DimensionMismatch("M must be a square 2D array"))
+    elseif dims[1] != Nv*dv
+        Msize = dims[1]
+        paramsize = Nv*dv
+        throw(DimensionMismatch("M has size $Msize while input of size Nv*dv = $paramsize was expected"))
+    end 
+end
+
+function check_dims(M,Nv,dv::Array{Int,1})
+    dims = size(M)
+    if length(dv) != Nv
+        throw(DimensionMismatch("dv must have Nv = $Nv entries"))
+    end
+    totaldims = sum(dv)
+    if length(dims) != 2 || dims[1] != dims[2] 
+        throw(DimensionMismatch("M must be a square 2D array"))
+    elseif dims[1] != totaldims
+        Msize = dims[1]
+        throw(DimensionMismatch("M has size $Msize while input of size sum(dv) = $totaldims was expected"))
+    end 
+end
+
+function check_reg_params(alpha,beta)
+    if alpha < 0
+        throw(DomainError(alpha,"regularization parameter alpha must be nonnegative"))
+    end
+    if beta < 0
+        throw(DomainError(beta,"regularization parameter alpha must be nonnegative"))
+    end
+end
+
+#generators for testing
 function er_graph(Nv,Pe,rng)
     A = zeros(Nv,Nv)
     Ne = 0
