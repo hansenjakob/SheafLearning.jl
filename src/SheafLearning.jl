@@ -12,7 +12,7 @@ using SCS
 using MathOptInterface
 const MOI = MathOptInterface
 
-export recover_sheaf_Laplacian, recover_mw_Laplacian, recover_sheaf_Laplacian_direct, recover_mw_Laplacian_direct, recover_sheaf_Laplacian_SCS, recover_sheaf_Laplacian_mosek
+export recover_sheaf_Laplacian, recover_mw_Laplacian 
 export edge_matrices_to_Laplacian, edge_weights_to_Laplacian
 export project_to_sheaf_Laplacian
 

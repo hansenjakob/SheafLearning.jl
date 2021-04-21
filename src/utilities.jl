@@ -1,46 +1,49 @@
+include("indices.jl")
+
 #translates a symmetric matrix M into a vector in the format required by SCS
 #that is, copies the lower triangle into a vector along columns, scaling off-diagonal entries by sqrt(2)
-function sym2vec(M)
-    dim = size(M)[1]
-    Mvec = zeros(div(dim*(dim+1),2))
-    k = 1
-    for j = 1:dim
-        Mvec[k] = M[j,j]
-        k += 1
-        for i = j+1:dim
-            Mvec[k] = sqrt(2)*M[i,j]
+function sym2vec(M; lower=true)
+    if !lower
+        return sym2vec_upper(M)
+    else
+        dim = size(M)[1]
+        Mvec = zeros(div(dim*(dim+1),2))
+        k = 1
+        for j = 1:dim
+            Mvec[k] = M[j,j]
             k += 1
+            for i = j+1:dim
+                Mvec[k] = sqrt(2)*M[i,j]
+                k += 1
+            end
         end
+        return Mvec
     end
-    return Mvec
 end
 
 #translates a vector from SCS format to a symmetric matrix. Requires dimension of the resulting matrix
 #assumes the vector is the lower triangle, following columns
-function vec2sym(V,dim)
-    M = zeros(dim,dim)
-    k = 1
-    for j = 1:dim
-        M[j,j] = V[k]
-        k += 1
-        for i = j+1:dim
-            v = V[k]/sqrt(2)
-            M[i,j] = v
-            M[j,i] = v
+function vec2sym(V,dim; lower=true)
+    if !lower
+        return vec2sym_upper(V,dim)
+    else
+        M = zeros(dim,dim)
+        k = 1
+        for j = 1:dim
+            M[j,j] = V[k]
             k += 1
+            for i = j+1:dim
+                v = V[k]/sqrt(2)
+                M[i,j] = v
+                M[j,i] = v
+                k += 1
+            end
         end
+        return M
     end
-    return M
 end
-function square_to_triangle_idx_upper(i,j,sqdim)
-    veclength = div(sqdim*(sqdim+1),2)
-    coi = sqdim - i + 1
-    coj = sqdim - j + 1
-    cok = square_to_triangle_idx(coi,coj,sqdim)
-    k = veclength - cok + 1
-    return k
-end
-#assumes the vector is the upper triangle, following columns
+
+#same as before, but assumes the vector is the upper triangle, following columns. Also no scaling factor.
 function vec2sym_upper(V,dim)
     M = zeros(dim,dim)
     k = 1
@@ -89,16 +92,18 @@ function vectorize_M(M,Nv,dv::Int)
             e += 1
         end
     end
-
     # Prepare initial condition
     Le = zeros(2dv,2dv,Ne)
     for e = 1:Ne
         Le[:,:,e] = Matrix{Float64}(I, dv*2, dv*2)
     end 
-
     return Me, Le
 end
 
+
+function edge_mat_sizes(Nv,dv::Array{Int,1})
+   return [(dv[i] + dv[j]) for i in 1:Nv for j in i+1:Nv] 
+end
 
 function vectorize_M(M,Nv,dv::Array{Int,1})
     totaldims = sum(dv)
@@ -125,13 +130,14 @@ function vectorize_M(M,Nv,dv::Array{Int,1})
     return Me, Le, edge_matrix_sizes
 end
 
+#converts parameter data into what's required for input to the conic solvers
 function vectorize_M_triangular(M,Nv,dv::Array{Int,1};lower=true)
     totaldims = sum(dv)
     Ne = div(Nv*(Nv-1),2)
 
     blockends = cumsum(dv)
     blockindices = [blockends[i]-dv[i]+1:blockends[i] for i in 1:Nv]
-    edge_matrix_sizes = [(dv[i] + dv[j]) for i in 1:Nv for j in i+1:Nv]
+    edge_matrix_sizes = edge_mat_sizes(Nv,dv)
     edge_vec_sizes = div.(edge_matrix_sizes.*(edge_matrix_sizes.+1),2)
     Me = zeros(sum(edge_vec_sizes))
     Le = zeros(size(Me))
@@ -141,14 +147,8 @@ function vectorize_M_triangular(M,Nv,dv::Array{Int,1};lower=true)
         for j = i+1:Nv
             indices = [blockindices[i]; blockindices[j]]
             veclength = div(edge_matrix_sizes[e]*(edge_matrix_sizes[e]+1),2)
-            if lower
-                Mvec = sym2vec(M[indices,indices])
-                Le[startidx:startidx+veclength-1] = sym2vec(Matrix{Float64}(I,(edge_matrix_sizes[e],edge_matrix_sizes[e])))
-            else
-                Mvec = sym2vec_upper(M[indices,indices])
-                Le[startidx:startidx+veclength-1] = sym2vec_upper(Matrix{Float64}(I,(edge_matrix_sizes[e],edge_matrix_sizes[e])))
-            end
-            Me[startidx:startidx+veclength-1] = Mvec
+            Me[startidx:startidx+veclength-1] = sym2vec(M[indices,indices];lower=lower)
+            Le[startidx:startidx+veclength-1] = sym2vec(Matrix{Float64}(I,(edge_matrix_sizes[e],edge_matrix_sizes[e]));lower=lower)
             startidx += veclength
             e += 1
         end
@@ -160,8 +160,7 @@ function vectorize_M_triangular_mw(M,Nv,dv::Int;lower=true)
     totaldims = Nv*dv
     Ne = div(Nv*(Nv-1),2)
 
-    blockends = dv:dv:totaldims
-    blockindices = [blockends[i]-dv+1:blockends[i] for i in 1:Nv]
+    blockindices = [(i-1)*dv+1:i*dv for i in 1:Nv]
     M_differences = zeros(size(M))
     for u = 1:Nv
         for v = u+1:Nv
@@ -177,14 +176,8 @@ function vectorize_M_triangular_mw(M,Nv,dv::Int;lower=true)
     startidx = 1
     for u = 1:Nv
         for v = u+1:Nv
-            if lower
-                Mvec = sym2vec(M_differences[blockindices[u],blockindices[v]])
-                We[startidx:startidx+edge_vec_size-1] = sym2vec(Matrix{Float64}(I,(edge_matrix_size,edge_matrix_size))) 
-            else
-                Mvec = sym2vec_upper(M_differences[blockindices[u],blockindices[v]])
-                We[startidx:startidx+edge_vec_size-1] = sym2vec_upper(Matrix{Float64}(I,(edge_matrix_size,edge_matrix_size))) 
-            end
-            Me[startidx:startidx+edge_vec_size-1] = Mvec
+            Me[startidx:startidx+edge_vec_size-1] = sym2vec(M_differences[blockindices[u],blockindices[v]];lower=lower)
+            We[startidx:startidx+edge_vec_size-1] = sym2vec(Matrix{Float64}(I,(dv,dv));lower=lower) 
             startidx += edge_vec_size
             e += 1
         end
@@ -230,7 +223,6 @@ end
 
 
 ###User-facing utility functions
-
 """
     edge_matrices_to_Laplacian(Le, Nv, dv)
 
@@ -249,8 +241,6 @@ function edge_matrices_to_Laplacian(Le::Array{Float64,3},Nv,dv::Int)
     end
     return L
 end
-
-
 
 function edge_matrices_to_Laplacian(Le::Array{Array{Float64,2},1},Nv,dv::Array{Int,1})
     totaldims = sum(dv)
@@ -324,7 +314,7 @@ function check_reg_params(alpha,beta)
     end
 end
 
-#generators for testing
+#generators for testing. can be used to explore or benchmark.
 function er_graph(Nv,Pe,rng)
     A = zeros(Nv,Nv)
     Ne = 0

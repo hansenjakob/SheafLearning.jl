@@ -4,10 +4,10 @@
     recover_sheaf_Laplacian_mosek(M,alpha,beta,Nv,dv; verbose=false)    
 
 Solves the optimization problem
-min tr(LM) + alpha Σ_v log tr(L_vv) + beta || offdiag(L) ||_F 
+min tr(LM) - alpha Σ_v log tr(L_vv) + beta || offdiag(L) ||_F 
 with L constrained to the cone of sheaf Laplacians.
 Note that this problem is slightly different than the one solved by other implementations:
-the Frobenius norm term is not squared. This makes it possible to implement in standard conic optimization solvers.
+the Frobenius norm term is not squared. This makes it simpler to implement in standard conic optimization solvers.
 
 Sets up the optimization problem and calls Mosek via MathOptInterface, hence requires Mosek to be installed.
 
@@ -30,7 +30,7 @@ function recover_sheaf_Laplacian_mosek(M,alpha,beta,Nv,dv::Array{Int,1}; verbose
     sol = MOI.get(optimizer, MOI.VariablePrimal(), x)
     Ne = div(Nv*(Nv-1),2)
 
-    Me, Levec, edge_matrix_sizes = vectorize_M_triangular(M,Nv,dv;lower=false)
+    edge_matrix_sizes = edge_mat_sizes(Nv,dv) 
     edge_vec_sizes = div.(edge_matrix_sizes.*(edge_matrix_sizes.+1),2)
     
     Le = Array{Array{Float64,2},1}()
@@ -45,6 +45,7 @@ end
 
 
 # This function takes an empty model and instantiates the correctly parameterized sheaf optimization problem as a MOI object
+# TODO: figure out how to use this to efficiently resolve with different parameters
 function construct_sheaf_problem_mosek(optimizer,M,alpha,beta,Nv,dv; verbose=false)
     totaldims = sum(dv)
     Ne = div(Nv*(Nv-1),2)
@@ -130,7 +131,7 @@ function construct_sheaf_problem_mosek(optimizer,M,alpha,beta,Nv,dv; verbose=fal
         end
     end
     
-    @time for v = 1:Nv
+    for v = 1:Nv
         constraint_term = MOI.ScalarAffineTerm.([ones(length(trL_indices[v])); -1.], [x[trL_indices[v]]; x[total_sdc_vector_size + 1 + 2Nv + v]])
         MOI.add_constraint(optimizer,MOI.ScalarAffineFunction(constraint_term,0.0), MOI.EqualTo(0.0)) #z_v == tr(L_vv)
         MOI.add_constraint(optimizer,MOI.SingleVariable(x[total_sdc_vector_size + 1 + Nv + v]),MOI.EqualTo(1.0)) #y_v == 1
@@ -153,7 +154,7 @@ Solves the optimization problem
 min tr(LM) + alpha Σ_v log tr(L_vv) + beta || offdiag(L) ||_F 
 with L constrained to the cone of matrix-weighted Laplacians.
 Note that this problem is slightly different than the one solved by other implementations:
-the Frobenius norm term is not squared. This makes it possible to implement in standard conic optimization solvers.
+the Frobenius norm term is not squared. This makes it simpler to implement in standard conic optimization solvers.
 
 Sets up the optimization problem and calls Mosek via MathOptInterface, hence requires Mosek to be installed.
 
@@ -179,13 +180,13 @@ function recover_mw_Laplacian_mosek(M,alpha,beta,Nv,dv::Int; verbose=false)
     # Me, Levec, edge_matrix_sizes = vectorize_M_triangular(M,Nv,dv;lower=false)
     edge_vec_size = div(dv*(dv+1),2)
     
-    Le = Array{Array{Float64,2},1}()
+    We = Array{Array{Float64,2},1}()
     startidx = 1
     for e = 1:Ne
-        push!(Le,vec2sym_upper(sol[startidx:startidx+edge_vec_size-1],dv))
+        push!(We,vec2sym_upper(sol[startidx:startidx+edge_vec_size-1],dv))
         startidx += edge_vec_size
     end
-    return Le
+    return We
 
 end
 
@@ -276,7 +277,7 @@ function construct_mw_problem_mosek(optimizer,M,alpha,beta,Nv,dv; verbose=false)
         end
     end
     
-    @time for v = 1:Nv
+    for v = 1:Nv
         constraint_term = MOI.ScalarAffineTerm.([ones(length(trL_indices[v])); -1.], [x[trL_indices[v]]; x[total_sdc_vector_size + 1 + 2Nv + v]])
         MOI.add_constraint(optimizer,MOI.ScalarAffineFunction(constraint_term,0.0), MOI.EqualTo(0.0)) #z_v == tr(L_vv)
         MOI.add_constraint(optimizer,MOI.SingleVariable(x[total_sdc_vector_size + 1 + Nv + v]),MOI.EqualTo(1.0)) #y_v == 1
@@ -306,6 +307,7 @@ Sets up the problem and calls SCS to solve.
 dv should be an array of length Nv, containing the vertex stalk dimensions.
 """
 function recover_sheaf_Laplacian_SCS(M,alpha,beta,Nv,dv::Array{Int,1};max_iters=5000,verbose=false)
+    #unfortunately, we can't use the MOI interface because it is broken.
     check_dims(M,Nv,dv)
     check_reg_params(alpha,beta) 
     totaldims = sum(dv)
@@ -401,7 +403,7 @@ end
     recover_mw_Laplacian_SCS(M,alpha,beta,Nv,dv,verbose=false)
 
 Solves the optimization problem
-min tr(LM) + alpha Σ_v log tr(L_vv) + beta || offdiag(L) ||_F 
+min tr(LM) - alpha Σ_v log tr(L_vv) + beta || offdiag(L) ||_F 
 with L constrained to the cone of matrix-weighted Laplacians.
 Note that this problem is slightly different than the one solved by other implementations:
 the Frobenius norm term is not squared. This makes it easier to implement in standard conic optimization solvers.
@@ -424,11 +426,14 @@ function recover_mw_Laplacian_SCS(M,alpha,beta,Nv,dv::Int;max_iters=5000,verbose
     c = [Me; [-alpha for i in 1:Nv]; beta] #coefficients for the linear objective function
     edge_vec_size = div(dv*(dv+1),2) 
     total_sdc_vector_size = Ne*edge_vec_size 
+
+    #construct semidefinite constraint matrix
     SDC_coefficients = spzeros(total_sdc_vector_size,length(c))
     for i = 1:total_sdc_vector_size
         SDC_coefficients[i,i] = 1 
     end
 
+    #construct second-order cone constraint matrix
     total_SOC_size = div(dv*(dv+1),2) * div(Nv*(Nv-1),2) 
     SOC_coefficients = spzeros(total_SOC_size+1,length(c))
     SOC_coefficients[1,length(c)] = 1
@@ -451,6 +456,7 @@ function recover_mw_Laplacian_SCS(M,alpha,beta,Nv,dv::Int;max_iters=5000,verbose
         end
     end
 
+    #construct exponential cone constraint matrix
     EXP_coefficients = spzeros(3*Nv,length(c))
     EXP_rhs = zeros(3*Nv)
     k = 1
