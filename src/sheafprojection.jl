@@ -1,9 +1,3 @@
-using LinearAlgebra, SCS
-using SparseArrays
-import MathOptInterface 
-using MosekTools
-const MOI = MathOptInterface
-
 ## Functions for translating indices between various shapes for the matrices making up sheaf Laplacians
 # Translates linear indices from vectors for symmetric matrices into 2d indices for a matrix. (lower triangular index returned)
 function triangle_to_square_idx(k,sqdim)

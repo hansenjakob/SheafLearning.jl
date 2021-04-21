@@ -156,6 +156,43 @@ function vectorize_M_triangular(M,Nv,dv::Array{Int,1};lower=true)
     return Me, Le, edge_matrix_sizes
 end
 
+function vectorize_M_triangular_mw(M,Nv,dv::Int;lower=true)
+    totaldims = Nv*dv
+    Ne = div(Nv*(Nv-1),2)
+
+    blockends = dv:dv:totaldims
+    blockindices = [blockends[i]-dv+1:blockends[i] for i in 1:Nv]
+    M_differences = zeros(size(M))
+    for u = 1:Nv
+        for v = u+1:Nv
+            M_differences[blockindices[u],blockindices[v]] = M[blockindices[u],blockindices[u]] + M[blockindices[v],blockindices[v]] - M[blockindices[u],blockindices[v]] - M[blockindices[v],blockindices[u]]
+        end
+    end
+    edge_matrix_size = dv
+    edge_vec_size = div(dv*(dv+1),2)
+
+    Me = zeros(Ne*edge_vec_size)
+    We = zeros(size(Me))
+    e = 1
+    startidx = 1
+    for u = 1:Nv
+        for v = u+1:Nv
+            if lower
+                Mvec = sym2vec(M_differences[blockindices[u],blockindices[v]])
+                We[startidx:startidx+edge_vec_size-1] = sym2vec(Matrix{Float64}(I,(edge_matrix_size,edge_matrix_size))) 
+            else
+                Mvec = sym2vec_upper(M_differences[blockindices[u],blockindices[v]])
+                We[startidx:startidx+edge_vec_size-1] = sym2vec_upper(Matrix{Float64}(I,(edge_matrix_size,edge_matrix_size))) 
+            end
+            Me[startidx:startidx+edge_vec_size-1] = Mvec
+            startidx += edge_vec_size
+            e += 1
+        end
+    end
+    return Me, We
+end
+
+
 function is_valid_edge_matrix(Le::Array{Float64,3},eps)
     dim = size(Le)[1]
     Ne = size(Le)[3]
@@ -283,7 +320,7 @@ function check_reg_params(alpha,beta)
         throw(DomainError(alpha,"regularization parameter alpha must be nonnegative"))
     end
     if beta < 0
-        throw(DomainError(beta,"regularization parameter alpha must be nonnegative"))
+        throw(DomainError(beta,"regularization parameter beta must be nonnegative"))
     end
 end
 
