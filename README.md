@@ -31,7 +31,7 @@ The functions return tuples `(Le,obj)` and `(We,obj)`, respectively, where `Le` 
 edge_matrices_to_Laplacian(Le,Nv,dv)
 edge_weights_to_Laplacian(We,Nv,dv)
 ```
-There are three backends for ```recover_sheaf_Laplacian```: the conic solvers [SCS](https://github.com/JuliaOpt/SCS.jl) (```"scs"```) and [Mosek](https://www.mosek.com) (```"mosek"```), and a hand-written direct solver (```"direct"```, not recommended). Currently only the direct backend is implemented for ```recover_mw_Laplacian```. The direct backend will probably be removed once the matrix-weighted problem is implemented as a conic program.
+There are three backends for these two functions: the conic solvers [SCS](https://github.com/JuliaOpt/SCS.jl) (```"scs"```) and [Mosek](https://www.mosek.com) (```"mosek"```), and a hand-written direct solver (```"direct"```, not recommended). The direct backend will likely be removed in the future. 
 
 Mosek is a commercial package, but has free academic licenses available, while SCS is open source. The Mosek solver is currently by far the fastes and most robust.
 

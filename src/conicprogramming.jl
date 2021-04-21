@@ -1,4 +1,4 @@
-#TODO: write conic programs for matrix-weighted Laplacians and connection Laplacians
+#TODO: write conic programs for connection Laplacians
 
 """
     recover_sheaf_Laplacian_mosek(M,alpha,beta,Nv,dv; verbose=false)    
