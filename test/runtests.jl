@@ -9,7 +9,7 @@ rng = Random.MersenneTwister(10324)
 Nv = 10 
 dv = 2
 Nsamples = 3000
-alpha = 1.
+alpha = 2.
 beta = 0.02
 Ne = div(Nv*(Nv-1),2)
 
@@ -21,14 +21,14 @@ L = Bsheaf'*Bsheaf
 X = SheafLearning.sample_smooth_vectors_tikh(L,Nsamples,10,rng)
 M = X*X'/Nsamples
 
-@testset "functions and gradients" begin
-include("function_tests.jl")
-test_functions(M,Nv,Ne,dv,alpha,beta)
-end
+# @testset "functions and gradients" begin
+# include("function_tests.jl")
+# test_functions(M,Nv,Ne,dv,alpha,beta)
+# end
 
-@testset "direct optimizers" begin
-include("optimizer_tests.jl")
-end
+# @testset "direct optimizers" begin
+# include("optimizer_tests.jl")
+# end
 
 #TODO: actual tests here
 @testset "conic optimizers" begin
